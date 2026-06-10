@@ -1,0 +1,1081 @@
+SteelMind
+Maintenance Wizard for Industrial Equipment
+Tata Steel AI Hackathon 2026  —  Round 2: Agentic AI Challenge
+COMPLETE GUIDE — Problem  •  Theory  •  Architecture  •  Agents  •  Dataset  •  Tech Stack
+Prepared by: Dev Varshney
+B.Tech CSE 2022–2026  |  RKGIT Ghaziabad
+varshney.dev.013@gmail.com  |  June 2026
+Table of Contents
+1.  Problem Statement — What Tata Steel Wants	3
+2.  Background Theory — Agentic AI Explained from Scratch	4
+3.  What is SteelMind?	6
+4.  System Architecture — The Big Picture	7
+5.  Input Layer — All Accepted Inputs	8
+6.  Output Layer — All Generated Outputs	9
+7.  Multi-Agent Design — Every Agent Explained	10
+8.  True Agentic AI — Parallel + Autonomous Agents	13
+9.  Voice Agent — Deep Dive	14
+10.  Vision Agent — Image Diagnosis Deep Dive	15
+11.  Multilingual Strategy — 7+ Languages	16
+12.  RAG Pipeline — Knowledge Retrieval Explained	17
+13.  Anomaly Detection — Sensor Analysis	18
+14.  Dataset Blueprint — Synthetic Data Strategy	19
+15.  Technology Stack — Every Tool Explained	21
+16.  Framework Comparison — LangGraph vs OpenClaw vs CrewAI	22
+17.  Judging Criteria Mapping	23
+18.  Key Differentiators	24
+19.  Build Order — Step by Step	24
+1. Problem Statement — What Tata Steel Wants
+Official Problem Statement (Tata Steel AI Hackathon 2026)
+Develop an intelligent AI-powered maintenance decision-support system for industrial equipment in steel manufacturing environments. The solution should help maintenance engineers diagnose equipment issues, identify root causes, predict failures, assess risks, prioritize maintenance actions, and generate actionable recommendations using data from equipment logs, sensor alerts, manuals, SOPs, and historical maintenance records.
+1.1 Real Problem in Steel Plants Today
+Steel manufacturing plants operate highly complex, capital-intensive equipment. A single unplanned breakdown can cause production loss worth crores of rupees, safety risks, and operational chaos. Here is what happens today:
+Current Situation
+Problem This Causes
+Engineer manually reads thick equipment manuals
+Takes hours — downtime keeps increasing
+Maintenance records stored in scattered Excel files
+No pattern recognition — same failures repeat
+Senior expert required for every diagnosis
+Expert unavailable = delayed decision
+No prediction — only react after breakdown
+Unplanned downtime = massive production loss
+English-only systems in multilingual plants
+Workers cannot use the system effectively
+No voice/hands-free interface
+Engineer has gloves on — cannot type queries
+1.2 What Tata Steel Wants Built
+Faster and more accurate diagnosis of equipment issues
+Identification of probable root causes of failures
+Prediction of equipment degradation and Remaining Useful Life (RUL)
+Proactive detection of abnormalities before catastrophic failure
+Prioritization of maintenance actions based on criticality, spare availability, and procurement lead time
+Natural language interaction — engineer should be able to just ask questions
+Continuous improvement through feedback from engineers
+Structured maintenance reports for supervisors
+1.3 Judging Criteria
+Criterion
+Weight
+Problem understanding and solution approach
+High
+Effective use of Agentic AI frameworks and concepts
+Very High
+Technical implementation and innovation
+Very High
+Scalability and real-world applicability
+High
+Quality of presentation and communication
+Medium
+Business impact and feasibility
+High
+2. Background Theory — Agentic AI Explained from Scratch
+This section explains all theoretical concepts from basics so that anyone — even without prior AI knowledge — can understand the system.
+2.1 What is an AI Agent?
+Simple Definition
+An AI Agent is a software system that can PERCEIVE its environment, REASON about what to do, TAKE ACTIONS, and LEARN from results — all with minimal human intervention.
+Think of it like this: A simple chatbot just answers questions. An AI Agent actually does things — it can search the web, run code, call APIs, make decisions, and even hire other agents to help it.
+Concept
+Simple Chatbot
+AI Agent
+Perceive input
+Only text
+Text + Voice + Image + Data + Files
+Reasoning
+Single response
+Multi-step planning and decision making
+Actions
+Just replies
+Calls tools, APIs, databases, other agents
+Memory
+Forgets after chat
+Persistent memory across sessions
+Improvement
+Static
+Learns from feedback over time
+2.2 What is Multi-Agent AI?
+Instead of one big AI doing everything, Multi-Agent AI divides the work among SPECIALIZED agents — just like a hospital has different doctors for different specialties, not one doctor for everything.
+SINGLE AGENT (old way):
+  User query → One LLM → One answer
+  Problem: One model cannot be expert in everything
+MULTI-AGENT (modern way):
+  User query → Orchestrator → assigns to specialists
+  Vision Expert + Database Expert + Reasoning Expert + Report Expert
+  Each agent does what it is best at → combined answer is far superior
+2.3 What is RAG — Retrieval Augmented Generation?
+RAG in Simple Words
+RAG means: before the AI answers your question, it first SEARCHES through your own documents (manuals, SOPs, logs) and retrieves the most relevant information. Then it uses that information to give a grounded, accurate answer — not just a guess.
+WITHOUT RAG:
+  Q: What is the maintenance procedure for Blast Furnace tuyere?
+  A: (AI guesses from training data — may be wrong or outdated)
+WITH RAG:
+  Q: What is the maintenance procedure for Blast Furnace tuyere?
+  Step 1: Search Tata Steel Blast Furnace Manual (your own document)
+  Step 2: Find relevant 3-4 paragraphs about tuyere maintenance
+  Step 3: AI reads those paragraphs + answers with full citation
+  A: (Accurate, grounded in your actual SOP, traceable to page number)
+RAG is what makes the AI trustworthy in industrial settings. Every answer has a source — engineer can verify it.
+2.4 What is LangGraph?
+LangGraph is a framework for building multi-agent AI systems as a graph — where each node is an agent and edges define how information flows between agents. It supports:
+Parallel execution — multiple agents run simultaneously
+Conditional routing — orchestrator decides which agents to call based on input type
+State management — shared memory across all agents in the graph
+Human-in-the-loop — pause and ask human for approval at any point
+2.5 What is Agentic AI vs Traditional AI?
+Dimension
+Traditional AI
+Agentic AI (SteelMind)
+Trigger
+Human asks → AI answers
+AI can also self-trigger on sensor alerts
+Scope
+Single task
+Multi-step autonomous workflows
+Tools
+None — just language
+Search, databases, APIs, code execution
+Adaptation
+Static model
+Learns from engineer feedback
+Collaboration
+One model
+Multiple specialized agents collaborating
+Decision making
+Suggests only
+Recommends + prioritizes + escalates
+2.6 What is STT and TTS?
+STT (Speech-to-Text): Converts spoken audio into written text. Used when engineer speaks a query — Whisper model transcribes it to text which the AI can process.
+TTS (Text-to-Speech): Converts written text into spoken audio. Used to speak the AI response back to the engineer — so they can hear the answer hands-free while working.
+2.7 What is Anomaly Detection?
+Anomaly detection means automatically finding data points that are unusual or abnormal. In a steel plant, if vibration sensor suddenly reads 3x its normal value, that is an anomaly. The Isolation Forest algorithm is used — it learns what 'normal' looks like from historical data and flags anything that deviates significantly.
+2.8 What is RUL — Remaining Useful Life?
+RUL is a prediction of how many more days/hours a piece of equipment can safely operate before it fails or needs replacement. It is calculated by analyzing sensor degradation trends over time. Early RUL warning allows planned maintenance instead of emergency breakdown.
+3. What is SteelMind?
+SteelMind is a Multimodal, Voice-First, Multi-Agent AI Maintenance Wizard built specifically for steel manufacturing plants. It is NOT just a chatbot — it is a complete intelligent decision-support platform.
+One Line Summary
+SteelMind lets a steel plant maintenance engineer photograph a broken machine, speak a question in their own language, and receive an instant expert-level diagnosis with step-by-step repair instructions, risk assessment, and spare parts recommendation — all in seconds.
+3.1 Real-World Precedent
+Urban Company (Mumbai-based tech company) introduced a voice + camera AI workflow for their field technicians. A plumber or electrician can photograph the issue and speak the problem — the AI diagnoses and gives instructions. SteelMind brings this exact paradigm to industrial-scale steel plant operations. This is not theoretical — it is already proven at consumer scale.
+3.2 Core Philosophy
+Engineer-first design — built for people with gloves on, not keyboard users
+Explainable AI — every recommendation traces back to a source document or data point
+Language-inclusive — works in Hindi, Odia, Bengali, Santali, Dutch, Welsh, Thai, English
+Proactive not reactive — predicts failures before they happen
+Continuously improving — learns from every engineer correction
+4. System Architecture — The Big Picture
+╔══════════════════════════════════════════════════════════════╗
+║              STEELMIND — SYSTEM ARCHITECTURE                ║
+╠══════════════════════════════════════════════════════════════╣
+║                                                              ║
+║  ┌─────────────────────────────────────────────────────┐   ║
+║  │              MULTIMODAL INPUT LAYER                  │   ║
+║  │  🎤 Voice  📸 Image  ⌨ Text  📊 CSV  📄 PDF        │   ║
+║  └─────────────────────────────────────────────────────┘   ║
+║                          │                                  ║
+║                          ▼                                  ║
+║  ┌─────────────────────────────────────────────────────┐   ║
+║  │           ORCHESTRATOR AGENT (LangGraph)             │   ║
+║  │  Decides: which agents to call, in what order,       │   ║
+║  │  parallel or sequential, what state to maintain      │   ║
+║  └─────────────────────────────────────────────────────┘   ║
+║         │           │           │           │               ║
+║         ▼           ▼           ▼           ▼               ║
+║  ┌────────┐  ┌────────┐  ┌─────────┐ ┌─────────┐         ║
+║  │ Vision │  │  RAG   │  │ Anomaly │ │Feedback │         ║
+║  │ Agent  │  │ Agent  │  │  Agent  │ │  Agent  │         ║
+║  └────────┘  └────────┘  └─────────┘ └─────────┘         ║
+║         │           │           │                           ║
+║         └─────┬─────┘           │                           ║
+║               ▼                 │                           ║
+║  ┌─────────────────────────┐    │                           ║
+║  │    DIAGNOSTIC AGENT     │◄───┘                           ║
+║  │  Core reasoning engine  │                                ║
+║  └─────────────────────────┘                               ║
+║               │                                             ║
+║               ▼                                             ║
+║  ┌─────────────────────────┐                               ║
+║  │    RISK SCORER AGENT    │                               ║
+║  └─────────────────────────┘                               ║
+║               │                                             ║
+║               ▼                                             ║
+║  ┌─────────────────────────┐                               ║
+║  │  REPORT GENERATOR AGENT │                               ║
+║  └─────────────────────────┘                               ║
+║               │                                             ║
+║               ▼                                             ║
+║  ┌─────────────────────────────────────────────────────┐   ║
+║  │             MULTIMODAL OUTPUT LAYER                  │   ║
+║  │  🔊 Voice  📋 Report  🚨 Alert  📈 RUL Graph        │   ║
+║  └─────────────────────────────────────────────────────┘   ║
+╚══════════════════════════════════════════════════════════════╝
+5. Input Layer — All Accepted Inputs
+#
+Input Type
+Format
+How Engineer Uses It
+Processing Agent
+1
+Voice Query
+Audio (WAV/MP3)
+Clicks mic button, speaks in any language
+Whisper STT → Orchestrator
+2
+Equipment Image
+JPG / PNG
+Photographs the faulty part
+Vision Agent (Gemini Flash)
+3
+Text Query
+Plain text
+Types question in chat box
+Orchestrator → Diagnostic
+4
+Sensor / Log Data
+CSV / JSON
+Uploads sensor readings or log file
+Anomaly Detection Agent
+5
+Knowledge Documents
+PDF / TXT
+Uploads manual, SOP, or report
+RAG Agent (FAISS)
+6
+Fault / Error Code
+Text input
+Types or pastes error code from machine
+Diagnostic Agent + RAG
+Why All 5 Input Types Matter
+Most teams will build text-only chatbots. SteelMind accepts voice (hands-free for gloved engineers), image (visual diagnosis from photos), CSV (sensor-based anomaly detection), and PDFs (grounded knowledge retrieval). This is the difference between a demo toy and a real industrial tool.
+6. Output Layer — All Generated Outputs
+#
+Output
+Format
+Description
+1
+Fault Diagnosis
+Text + Confidence %
+What is wrong with the equipment
+2
+Root Cause Analysis
+Structured text with source
+Why it went wrong — traceable to manual/log
+3
+Risk Level Badge
+LOW / MEDIUM / HIGH / CRITICAL
+Severity classification for immediate action decision
+4
+Step-by-Step Repair Plan
+Numbered action list
+Exactly what to do, in what order
+5
+RUL Prediction
+Days/hours + trend graph
+How long before equipment fails completely
+6
+Spare Parts Table
+Part name, quantity, availability
+What parts to order, lead time, warehouse stock
+7
+Maintenance Report
+Downloadable PDF
+Structured report for supervisor sign-off
+8
+Real-Time Alert
+Notification + badge
+Instant push when critical anomaly detected
+9
+Voice Response
+Spoken audio (TTS)
+Engineer hears the answer — no reading needed
+7. Multi-Agent Design — Every Agent Explained in Detail
+7.1 Orchestrator Agent — The Brain
+Role
+The Orchestrator is the central controller. It receives all inputs, decides which specialist agents to call, manages the shared state, and assembles the final response. It is NOT a chatbot — it is a router and coordinator.
+Property
+Details
+Input
+All user inputs (voice text, image path, CSV path, PDF path, query text)
+Output
+Agent execution plan — which agents to call, in what order/parallel
+LLM
+Mistral 7B Instruct via Groq API
+Framework
+LangGraph StateGraph
+Key Logic
+Conditional routing based on input type — image? call Vision. CSV? call Anomaly.
+# Orchestrator routing logic (pseudocode)
+def route(state):
+    agents = []
+    if state['has_image']:   agents.append('vision_agent')
+    if state['has_csv']:     agents.append('anomaly_agent')
+    if state['has_docs'] or state['text_query']:
+                             agents.append('rag_agent')
+    return agents  # these run IN PARALLEL
+7.2 Vision Agent — The Eyes
+Role
+Analyzes uploaded equipment photographs to identify visual faults — corrosion, cracks, overheating, wear, leaks. Converts a photo into structured fault data that the Diagnostic Agent can reason over.
+Property
+Details
+Input
+Equipment image (JPG/PNG) + optional context (equipment type, location)
+Output
+Fault type, severity estimate, visual observations, confidence score
+Model
+Gemini 1.5 Flash (Vision capable, free tier)
+Image Types Handled
+Corrosion, cracks, thermal discoloration, wear, leaks, motion blur (vibration)
+# Vision Agent prompt structure
+system = '''You are an industrial equipment visual diagnosis expert.
+            Analyze the image and identify:
+            1. Fault type (corrosion / crack / wear / overheating / leak / other)
+            2. Severity (LOW / MEDIUM / HIGH / CRITICAL)
+            3. Affected component
+            4. Estimated urgency for intervention
+            Return structured JSON output only.'''
+7.3 RAG Agent — The Memory
+Role
+Searches through all uploaded knowledge documents (manuals, SOPs, maintenance records, failure reports) to find the most relevant information for the current query. Provides grounded, traceable context to the Diagnostic Agent.
+Property
+Details
+Input
+User query text + equipment context
+Output
+Top 3-5 relevant document chunks with source citation
+Vector DB
+FAISS (local, fast, no server required)
+Embeddings
+sentence-transformers/all-MiniLM-L6-v2 (free, local)
+Chunk Size
+500 tokens with 50 token overlap
+Documents Indexed
+Equipment manuals, SOPs, historical logs, failure reports, spare parts catalog
+# RAG Pipeline (simplified)
+1. Load PDFs → split into 500-token chunks
+2. Embed each chunk → store in FAISS index
+3. At query time: embed query → find top-5 similar chunks
+4. Return chunks + source filename + page number
+5. Diagnostic Agent uses these chunks as grounded context
+7.4 Diagnostic Agent — The Expert
+Role
+The core reasoning engine. Takes inputs from Vision Agent, RAG Agent, and Anomaly Agent, combines them, and produces the final diagnosis: fault identification, root cause, repair steps, and spare parts recommendation.
+Property
+Details
+Input
+Vision output + RAG context chunks + Anomaly flags + Original query
+Output
+Fault diagnosis, root cause, step-by-step repair plan, spare parts list
+LLM
+Mistral 7B Instruct via Groq (fast, free)
+Key Feature
+Explainability — every output references its source (manual page / sensor data / historical log)
+7.5 Anomaly Detection Agent — The Watchdog
+Role
+Continuously monitors sensor data (temperature, vibration, pressure, RPM, current). Detects statistical anomalies, predicts Remaining Useful Life (RUL), and triggers real-time alerts for critical equipment.
+Property
+Details
+Input
+Sensor CSV file or real-time sensor stream
+Output
+Anomaly flags, RUL estimate (days), trend charts, alert severity
+Algorithm
+Isolation Forest (scikit-learn) — unsupervised anomaly detection
+Sensors Monitored
+Temperature, vibration (mm/s), pressure (bar), RPM, motor current (A)
+Alert Trigger
+If anomaly_score > threshold OR RUL < 7 days → CRITICAL alert
+7.6 Risk Scorer Agent — The Judge
+Role
+Assigns a final risk level (LOW / MEDIUM / HIGH / CRITICAL) based on multiple factors: equipment criticality in the production line, fault severity, spare availability, procurement lead time, and production impact.
+Risk Factor
+Weight
+Example
+Equipment criticality (production bottleneck?)
+35%
+Blast Furnace = Critical; Lighting = Low
+Fault severity (from Diagnostic + Vision)
+30%
+Crack in pressure vessel = High
+Anomaly score (from sensor data)
+20%
+Temperature 40% above normal = High
+Spare parts availability
+10%
+Part out of stock, 30-day lead time = escalates risk
+Time since last maintenance
+5%
+Overdue by 3 months = escalates risk
+7.7 Report Generator Agent — The Scribe
+Role
+Compiles all agent outputs into a structured, professional maintenance report — suitable for supervisor sign-off and record keeping. Generates both a chat summary and a downloadable PDF.
+Report contains: Executive Summary, Equipment Details, Fault Description, Root Cause, Risk Level, Repair Steps, Spare Parts, RUL Estimate, Recommended Follow-up Actions, Engineer Notes.
+7.8 Feedback Agent — The Learner
+Role
+After the engineer executes the recommended repair, they provide feedback — was the diagnosis correct? What actually fixed it? This feedback is stored and used to improve future recommendations through RAG knowledge base updates.
+Feedback Type
+How Stored
+How Used
+Correct diagnosis confirmed
+SQLite + ChromaDB
+Reinforces similar future recommendations
+Wrong diagnosis corrected
+SQLite + correction log
+Added as negative example to avoid same error
+Better repair steps provided
+Knowledge base update
+Future RAG searches will find this improved procedure
+8. True Agentic AI — Parallel + Autonomous Agents
+Critical Point for Judges
+Most submissions will be sequential pipelines (Input → Agent1 → Agent2 → Output). That is NOT Agentic AI — that is just a chain. True Agentic AI means agents run in PARALLEL, make AUTONOMOUS decisions about what to do next, and COMMUNICATE with each other based on intermediate results.
+8.1 Parallel Execution
+When a user submits an image + CSV + text query, the Orchestrator dispatches Vision Agent, Anomaly Agent, and RAG Agent SIMULTANEOUSLY — not one after another. All three run in parallel threads and return their results to the shared state. Diagnostic Agent then synthesizes all results.
+# LangGraph parallel execution
+graph.add_node('orchestrator', orchestrate)
+graph.add_node('vision_agent', analyze_image)
+graph.add_node('rag_agent', retrieve_knowledge)
+graph.add_node('anomaly_agent', detect_anomalies)
+graph.add_node('diagnostic_agent', diagnose)
+# Fan-out: orchestrator → [vision, rag, anomaly] in PARALLEL
+graph.add_conditional_edges('orchestrator', route_parallel,
+    {'vision': 'vision_agent', 'rag': 'rag_agent', 'anomaly': 'anomaly_agent'})
+# Fan-in: all parallel agents → diagnostic
+graph.add_edge('vision_agent', 'diagnostic_agent')
+graph.add_edge('rag_agent', 'diagnostic_agent')
+graph.add_edge('anomaly_agent', 'diagnostic_agent')
+8.2 Autonomous Decision Making
+The Orchestrator does NOT always call all agents. It decides dynamically based on what input was provided:
+Input Provided
+Agents Called
+Agents NOT Called
+Text query only
+RAG Agent + Diagnostic Agent
+Vision Agent, Anomaly Agent
+Image only
+Vision Agent + Diagnostic Agent
+RAG Agent, Anomaly Agent
+CSV only
+Anomaly Agent + Diagnostic Agent
+Vision Agent, RAG Agent
+Image + CSV + Text
+ALL agents in parallel
+None skipped
+PDF upload only
+RAG Agent (indexing mode)
+All others
+8.3 Inter-Agent Communication
+Agents react to each other's outputs. This is what makes it truly agentic:
+If Anomaly Agent flags CRITICAL temperature spike → Diagnostic Agent automatically escalates urgency
+If Vision Agent detects crack in pressure vessel → Risk Scorer automatically assigns CRITICAL regardless of other factors
+If RAG Agent finds a similar historical failure with known fix → Diagnostic Agent prioritizes that solution
+If Risk Scorer outputs CRITICAL → Alert Agent fires immediate notification without waiting for full report
+9. Voice Agent — Deep Dive
+9.1 Why Voice is Essential (Not Optional)
+A maintenance engineer in a steel plant is working in a 1300°C environment, wearing heat-resistant gloves, surrounded by loud machinery. They CANNOT type on a keyboard or touchscreen. Voice is the only practical interface. This is not a nice-to-have — it is the difference between a system that gets used and one that collects dust.
+9.2 Complete Voice Flow
+STEP 1: Engineer sees abnormal vibration in Rolling Mill bearing
+STEP 2: Opens SteelMind on phone/tablet
+STEP 3: Taps mic button — speaks:
+        Hindi:   'Is bearing mein bahut zyada awaaz aa rahi hai'
+        Odia:    'Ei bearing re bahut noise ashuchi'
+        English: 'This bearing is making unusual noise'
+STEP 4: Whisper STT converts audio → text (auto language detection)
+STEP 5: Orchestrator receives text → routes to RAG + Diagnostic
+STEP 6: If engineer also photographed the bearing → Vision Agent runs
+STEP 7: Diagnostic Agent synthesizes all inputs
+STEP 8: Response generated:
+        'Bearing wear detected. Risk level: HIGH.'
+        'Step 1: Shutdown motor immediately.'
+        'Step 2: Replace SKF 6205 bearing.'
+        'Spare available in Warehouse B, Rack 4.'
+STEP 9: Gemini TTS converts response → spoken audio
+STEP 10: Engineer HEARS the answer — hands still free
+9.3 Technical Stack for Voice
+Component
+Tool
+Why
+Speech to Text (STT)
+OpenAI Whisper (local or API)
+Best accuracy, handles Hinglish + regional languages, free
+Language Detection
+Whisper auto-detect
+No config needed — automatically identifies language
+Text to Speech (TTS)
+Gemini TTS (primary)
+Natural voice, multilingual, free tier
+TTS Fallback
+gTTS (Google TTS)
+Works offline, 30+ languages, completely free
+Audio Processing
+PyAudio / Streamlit mic
+Browser-based mic capture for demo
+10. Vision Agent — Image Diagnosis Deep Dive
+10.1 What Can Be Diagnosed From Images
+Visual Fault
+What the AI Detects
+Typical Severity
+Surface corrosion / rust
+Corrosion coverage %, affected area, estimated depth
+LOW to HIGH
+Cracks / fractures
+Crack type (surface/through), length estimate, propagation risk
+HIGH to CRITICAL
+Thermal discoloration
+Overheating evidence, heat affected zone, temperature estimate
+MEDIUM to CRITICAL
+Wear patterns on gears/belts
+Wear stage (early/mid/severe), replacement urgency
+MEDIUM to HIGH
+Fluid leaks
+Leak source, fluid type estimate, contamination risk
+MEDIUM to HIGH
+Motion blur in photo
+Indicates vibration amplitude, frequency estimate
+MEDIUM
+Physical damage / deformation
+Impact damage, bending, warping
+HIGH to CRITICAL
+10.2 Vision Agent Prompt Engineering
+system_prompt = '''
+You are an expert industrial equipment visual inspector with 20 years
+of experience in steel manufacturing plants.
+Analyze the provided image and return ONLY valid JSON:
+{
+  'fault_detected': true/false,
+  'fault_type': 'corrosion|crack|wear|overheating|leak|vibration|other',
+  'affected_component': 'bearing|pipe|gear|motor|frame|other',
+  'severity': 'LOW|MEDIUM|HIGH|CRITICAL',
+  'visual_observations': ['observation 1', 'observation 2'],
+  'immediate_action_required': true/false,
+  'confidence': 0.0-1.0,
+  'additional_context': 'any important observations'
+}
+'''
+11. Multilingual Strategy — 7+ Languages
+Tata Steel employs 76,000+ people across 5 countries. A system that only works in English excludes the majority of actual maintenance workers. SteelMind supports all plant languages — at zero additional implementation cost.
+11.1 Tata Steel Plant — Language Map
+Plant
+Country
+Languages
+Workforce
+Jamshedpur
+India
+Hindi + Bengali + Santali
+~35,000
+Kalinganagar
+India
+Odia + Hindi
+~15,000
+IJmuiden
+Netherlands
+Dutch + English
+~9,000
+Port Talbot
+UK
+Welsh + English
+~4,000
+Thailand Plant
+Thailand
+Thai + English
+~5,000
+11.2 Three-Layer Multilingual Architecture
+Layer
+Tool
+What It Does
+Layer 1: Speech Input
+OpenAI Whisper
+Auto-detects language from audio — no config needed
+Layer 2: LLM Reasoning
+Mistral / Gemini
+System prompt instructs: respond in same language as user
+Layer 3: Voice Output
+Gemini TTS / gTTS
+Speaks response in detected input language
+11.3 Language Support Matrix
+Language
+STT Quality
+TTS Quality
+Plant
+Hindi
+Excellent
+Gemini TTS (natural)
+Jamshedpur, Kalinganagar
+Odia
+Good
+gTTS fallback
+Kalinganagar
+Bengali
+Excellent
+Gemini TTS
+Jamshedpur
+Santali
+Basic
+gTTS fallback
+Jamshedpur (tribal workforce)
+English
+Excellent
+Gemini TTS (natural)
+All plants
+Dutch
+Excellent
+Gemini TTS
+IJmuiden, Netherlands
+Welsh
+Good
+gTTS fallback
+Port Talbot, UK
+Thai
+Good
+Gemini TTS
+Thailand
+Implementation Cost: Zero
+Whisper already auto-detects language. The LLM already understands all these languages. Just add one line to the system prompt: 'Always respond in the same language as the user.' That's it.
+12. RAG Pipeline — Knowledge Retrieval Explained
+12.1 Documents Indexed in Knowledge Base
+Document Type
+Content
+Format
+Equipment Manuals
+Technical specs, maintenance procedures, torque values, part numbers
+PDF
+Standard Operating Procedures (SOPs)
+Step-by-step procedures for common maintenance tasks
+PDF / TXT
+Historical Maintenance Records
+Past breakdowns, what was done, time taken, outcome
+CSV / PDF
+Failure Analysis Reports
+Root cause analyses of past failures with lessons learned
+PDF
+Spare Parts Catalog
+Part names, part numbers, warehouse locations, lead times, costs
+CSV / PDF
+Maintenance Schedules
+Preventive maintenance calendar, inspection frequencies
+PDF
+12.2 RAG Pipeline Step by Step
+Load all PDFs/TXTs from knowledge base folder
+Split each document into 500-token chunks with 50-token overlap
+Generate embedding vector for each chunk using sentence-transformers
+Store all vectors in FAISS index (saved to disk for reuse)
+At query time: embed the user query into same vector space
+Find top-5 most similar chunks using cosine similarity
+Return chunks with source filename, page number, and relevance score
+Diagnostic Agent uses these chunks as grounded context for reasoning
+12.3 Why FAISS Over ChromaDB
+Factor
+FAISS
+ChromaDB
+Setup
+Zero config — pure Python
+Requires server process
+Speed
+Extremely fast (C++ core)
+Good but slower
+Cost
+Free, no API
+Free but heavier
+Persistence
+Save/load index file
+SQLite backend
+Best for
+Prototype + production
+Production with REST API need
+Our choice
+YES — simpler for demo
+Not for this project
+13. Anomaly Detection — Sensor Analysis
+13.1 How Isolation Forest Works
+Isolation Forest is an unsupervised machine learning algorithm that detects anomalies by trying to 'isolate' data points. Normal points require many splits to isolate (they cluster together). Anomalous points are isolated quickly with few splits. The anomaly score is based on how quickly a point was isolated.
+Normal reading:  Temperature = 1200°C  → needs many splits to isolate → NORMAL
+Anomalous:       Temperature = 1680°C  → isolated in 2 splits → ANOMALY (score 0.9)
+Threshold: anomaly_score > 0.6 → flag as anomaly
+           anomaly_score > 0.8 → trigger CRITICAL alert
+13.2 RUL Prediction Method
+Remaining Useful Life is predicted using linear regression on rolling average degradation trend. If vibration has been increasing 0.3 mm/s per day and safe limit is 4.5 mm/s, current reading is 3.6 mm/s → RUL = (4.5 - 3.6) / 0.3 = 3 days. Trigger maintenance alert with 7-day buffer.
+13.3 Sensor Thresholds — Steel Plant Reference
+Sensor
+Normal Range
+Warning
+Critical
+Temperature (furnace)
+1150–1300°C
+>1400°C
+>1550°C
+Vibration (bearing)
+0.5–2.0 mm/s
+>3.5 mm/s
+>6.0 mm/s
+Pressure (hydraulic)
+150–200 bar
+>220 bar
+>250 bar
+Motor current
+80–100 A
+>115 A
+>130 A
+Oil temperature
+40–60°C
+>75°C
+>90°C
+14. Dataset Blueprint — Synthetic Data Strategy
+Note on Dataset
+Tata Steel has NOT provided any real dataset. All 109 participants are in the same situation. We generate realistic synthetic data using Python (NumPy + Faker) that mimics actual steel plant sensor patterns, including normal operation, gradual degradation, and sudden failures.
+14.1 Equipment Types and Fault Scenarios
+Equipment
+Fault Scenarios Simulated
+Key Sensors
+Blast Furnace
+Tuyere blockage, refractory wear, cooling stave failure
+Temp, pressure, gas flow, tap hole temp
+Rolling Mill
+Roll bearing failure, chatter vibration, strip breakage
+Vibration, RPM, tension, roll temperature
+Continuous Caster
+Breakout prediction, roller misalignment, mold powder issues
+Mold temp, casting speed, strand temp
+Hydraulic System
+Seal failure, pump cavitation, oil contamination
+Pressure, flow rate, oil temp, particle count
+Electric Arc Furnace
+Electrode breakage, transformer fault, cooling leak
+Electrode current, voltage, water temp
+Conveyor System
+Belt misalignment, bearing failure, motor overload
+Belt speed, tension, vibration, current
+Compressor
+Valve failure, surge, bearing wear, overheating
+Suction pressure, discharge temp, vibration
+14.2 Sensor Dataset Schema
+Column
+Type
+Description
+Example
+timestamp
+datetime
+Reading timestamp (1-min intervals)
+2026-01-15 08:32:00
+equipment_id
+string
+Unique equipment ID
+BF-001
+equipment_type
+string
+Equipment category
+Blast Furnace
+sensor_temperature
+float
+Temperature in Celsius
+1248.5
+sensor_vibration
+float
+Vibration RMS (mm/s)
+1.83
+sensor_pressure
+float
+Pressure (bar)
+178.4
+sensor_rpm
+float
+Rotational speed (RPM)
+1480.0
+sensor_current
+float
+Motor current (Amperes)
+87.3
+anomaly_flag
+int
+0=Normal, 1=Anomaly
+0
+fault_code
+string
+Error code from PLC
+ERR-BF-T02
+severity
+string
+LOW/MEDIUM/HIGH/CRITICAL
+HIGH
+rul_days
+int
+Remaining Useful Life (days)
+12
+14.3 Maintenance Log Schema
+Column
+Type
+Description
+log_id
+string
+Unique log entry ID (LOG-YYYY-NNNN)
+date
+date
+Date of maintenance activity
+equipment_id
+string
+Equipment worked on
+fault_reported
+string
+Issue as described by engineer
+root_cause
+string
+Identified root cause after investigation
+action_taken
+string
+Repair steps executed (semicolon separated)
+downtime_hours
+float
+Total unplanned downtime in hours
+spare_parts_used
+string
+Parts consumed with quantities
+engineer_id
+string
+Responsible engineer ID
+outcome
+string
+RESOLVED / ESCALATED / MONITORING
+follow_up_date
+date
+Next inspection date if required
+14.4 Data Generation Strategy
+Generate 6 months of normal sensor readings (baseline pattern per equipment)
+Inject 50+ realistic fault scenarios with gradual degradation curves
+Add sudden failure events (10% of faults) — sharp spike in readings
+Generate corresponding maintenance log entries for each fault
+Create synthetic SOPs for top 10 most common faults
+Create synthetic equipment manual sections for each equipment type
+Generate spare parts catalog with 200+ parts, warehouse locations, lead times
+15. Technology Stack — Every Tool Explained
+Layer
+Tool
+Version
+Purpose
+Cost
+Agent Framework
+LangGraph
+0.2.x
+Multi-agent orchestration, state management, parallel execution
+Free
+Primary LLM
+Mistral 7B Instruct
+via Groq API
+Core reasoning, diagnosis generation, report writing
+Free tier
+Vision LLM
+Gemini 1.5 Flash
+Google API
+Image analysis, visual fault detection
+Free tier
+Speech to Text
+OpenAI Whisper
+large-v3
+Voice input, multilingual, Hinglish support
+Free (local)
+Text to Speech
+Gemini TTS
+Google API
+Voice output, multilingual natural speech
+Free tier
+TTS Fallback
+gTTS
+Python lib
+Offline TTS, 30+ languages
+Free
+RAG Vector DB
+FAISS
+1.7.x
+Fast similarity search for knowledge retrieval
+Free
+Embeddings
+sentence-transformers
+all-MiniLM-L6
+Text embedding for RAG
+Free local
+Anomaly Detection
+Isolation Forest
+scikit-learn
+Unsupervised sensor anomaly detection
+Free
+Backend API
+FastAPI
+0.110.x
+REST API layer, async processing
+Free
+Frontend UI
+Streamlit
+1.35.x
+Chat UI, mic input, file upload, dashboard
+Free
+Database
+SQLite + ChromaDB
+local
+Feedback storage, conversation history
+Free
+Containerization
+Docker
+latest
+Reproducible deployment for judge demo
+Free
+Data Generation
+NumPy + Faker
+Python
+Synthetic sensor and log data generation
+Free
+16. Framework Comparison — LangGraph vs OpenClaw vs CrewAI
+OpenClaw is a newly viral open-source agent framework (released November 2025, 100K+ GitHub stars by January 2026). We evaluated it alongside LangGraph and CrewAI before making our choice.
+Factor
+LangGraph
+OpenClaw
+CrewAI
+Release
+2024 (mature)
+Nov 2025 (very new)
+2024 (moderate)
+GitHub Stars
+~85K
+~100K+ (viral)
+~25K
+Primary Use Case
+Complex agentic workflows, industrial
+Personal AI assistants, messaging bots
+Task-oriented agent crews
+Multi-agent support
+Full DAG, parallel, conditional
+Basic routing
+Sequential crew roles
+Parallel execution
+Native support
+Limited
+Limited
+State management
+Excellent (TypedDict state)
+Basic session state
+Good
+Industrial use case fit
+Excellent
+Poor (chat assistant focused)
+Good
+Messaging platforms
+Not built-in
+Telegram, WhatsApp, Slack
+Not built-in
+Maturity for production
+High — battle tested
+Low — very new
+Medium
+Our decision
+CHOSEN
+Evaluated, ruled out
+Considered, not chosen
+Why We Ruled Out OpenClaw
+OpenClaw is excellent for personal assistant bots on messaging platforms. But SteelMind needs precise control over a complex industrial reasoning pipeline with parallel agents, shared state, and conditional routing. LangGraph's graph-based architecture is the correct tool for this use case. OpenClaw's mention in our evaluation also demonstrates awareness of the latest frameworks.
+17. Judging Criteria Mapping
+Judging Criterion
+How SteelMind Addresses It
+Evidence
+Problem understanding
+All 4 input categories and all 5 output categories from problem statement fully covered
+Section 5 + 6
+Agentic AI frameworks
+8-agent LangGraph DAG with parallel execution, conditional routing, inter-agent communication
+Section 7 + 8
+Technical innovation
+Multimodal: Voice + Image + Text + CSV + PDF. No other team will do all 5.
+Section 5 + 9 + 10
+Scalability
+Docker deployment, modular agent design, each agent independently replaceable
+Section 15
+Real-world applicability
+Urban Company precedent, multilingual support for actual Tata Steel workforce, plant-specific equipment
+Section 3 + 11
+Business impact
+RUL prediction shifts reactive to proactive maintenance. Multilingual removes language barrier.
+Section 6 + 11
+18. Key Differentiators vs Other 108 Submissions
+Estimated 90%+ of 109 participants will submit a basic text chatbot with RAG over some documents. Here is why SteelMind is different:
+Feature
+Typical Submission
+SteelMind
+Input modalities
+Text only
+Voice + Image + Text + CSV + PDF
+Agent architecture
+Single LLM or simple chain
+8 specialized agents with LangGraph DAG
+Parallelism
+Sequential pipeline
+True parallel execution of specialist agents
+Language support
+English only
+8 languages including regional Indian languages
+Image diagnosis
+None
+Visual fault detection via Gemini Flash
+Voice interface
+None
+Hands-free voice query + voice response
+Anomaly detection
+Maybe basic
+Isolation Forest on sensor time-series data
+RUL prediction
+None
+Linear regression on degradation trend
+Feedback loop
+None
+Engineer corrections improve future recommendations
+Framework knowledge
+LangChain only
+LangGraph + OpenClaw evaluation documented
+Real-world precedent
+None cited
+Urban Company field tech workflow cited
+19. Build Order — Step by Step
+Deadline
+June 15, 2026 — 11:59 PM IST. Approximately 7 days from June 8. Build in this order to ensure a working demo exists at every stage.
+Day
+Task
+Deliverable
+Day 1
+Generate synthetic datasets (sensor CSV + maintenance logs + knowledge PDFs)
+3 CSV files + 5 synthetic PDFs
+Day 1
+Set up RAG pipeline: chunk PDFs → embed → FAISS index
+Working knowledge retrieval
+Day 2
+Build Diagnostic Agent: text query → Mistral → diagnosis response
+Basic working chatbot
+Day 2
+Add Vision Agent: image upload → Gemini Flash → fault JSON
+Image diagnosis working
+Day 3
+Add Voice Agent: mic → Whisper STT → existing pipeline → gTTS output
+Full voice loop working
+Day 3
+Add Anomaly Detection Agent: Isolation Forest on sensor CSV
+Anomaly flags + RUL
+Day 4
+Add Risk Scorer: multi-factor scoring → badge output
+Risk level classification
+Day 4
+Wire all agents into LangGraph Orchestrator with parallel execution
+True multi-agent system
+Day 5
+Add Report Generator + Feedback Agent + SQLite storage
+Report generation working
+Day 5
+Build Streamlit UI: chat + mic + upload + dashboard + language selector
+Full UI working
+Day 6
+End-to-end testing with 3 complete demo scenarios
+All scenarios verified
+Day 6
+Record screen demo video (3-5 minutes covering all features)
+Demo video ready
+Day 7
+Write architecture document, cleanup code, prepare ZIP submission
+Final submission ready
+19.1 Three Demo Scenarios for Screen Recording
+Scenario 1 — Voice + Image Diagnosis
+Engineer photographs a corroded bearing on Rolling Mill, speaks query in Hindi: 'Is bearing mein problem hai.' System diagnoses corrosion, gives MEDIUM risk, provides replacement steps, confirms spare availability.
+Scenario 2 — Sensor Anomaly Alert
+Upload sensor CSV showing gradual temperature increase in Blast Furnace over 30 days. System detects anomaly, predicts RUL = 4 days, triggers CRITICAL alert, recommends immediate inspection of cooling stave.
+Scenario 3 — RAG Knowledge Query
+Engineer types: 'What is the hydraulic system seal replacement procedure for Pump P-204?' System retrieves exact SOP from knowledge base, returns step-by-step procedure with torque specs and required tools, cites source document.
+SteelMind — Built to Win  |  Tata Steel AI Hackathon 2026  |  Dev Varshney
+varshney.dev.013@gmail.com  |  github.com/dev200413y  |  linkedin.com/in/varshney-dev-200413y
