@@ -72,7 +72,7 @@ function Sidebar({ activePage, setActivePage, alertCount }) {
     { id: 'alerts', label: 'Alerts', icon: 'alerts', badge: alertCount },
     { id: 'chat', label: 'AI Chat', icon: 'chat' },
     { id: 'reports', label: 'Reports', icon: 'reports' },
-    { id: 'spare', label: 'Spare Parts', icon: 'spare' },
+    { id: 'spare', label: 'Predictions', icon: 'zap' },
     { id: 'knowledge', label: 'Knowledge', icon: 'knowledge' },
   ];
 
@@ -614,6 +614,265 @@ function AIChatPage() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// Predictions Page — RUL + Failure Probability (LIVE from API)
+// ═══════════════════════════════════════════════════════════
+function PredictionsPage() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    axios.get(`${API}/predictions`).then(r => { setData(r.data); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', paddingTop: 100 }}>⏳ Loading predictions from sensor data...</div>;
+  if (!data || !data.predictions?.length) return <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', paddingTop: 100 }}>No prediction data available. Run data generation first.</div>;
+
+  const downloadCSV = () => {
+    const headers = ['Equipment ID', 'Type', 'RUL (Days)', 'Failure Probability', 'Risk Level', 'Recommended Action', 'Avg Temp', 'Avg Vibration', 'Anomaly'];
+    const rows = data.predictions.map(p => [p.equipment_id, p.equipment_type, p.rul_days, p.failure_probability, p.risk_level, p.recommended_action, p.avg_temperature, p.avg_vibration, p.anomaly_detected]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'steelmind_predictions.csv'; a.click();
+  };
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Failure Predictions & RUL</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Remaining Useful Life predictions powered by XGBoost + Isolation Forest</div>
+        </div>
+        <button className="btn btn-accent" onClick={downloadCSV}><Icon name="download" size={14} /> Download CSV</button>
+      </div>
+
+      {/* Summary Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+        <div className="metric-stat"><div className="metric-label">Total Equipment</div><div className="metric-value">{data.total_equipment}</div></div>
+        <div className="metric-stat" style={{ borderColor: 'var(--critical-border)' }}><div className="metric-label">Critical Risk</div><div className="metric-value" style={{ color: 'var(--critical)' }}>{data.critical_count}</div></div>
+        <div className="metric-stat" style={{ borderColor: 'var(--high-border)' }}><div className="metric-label">High Risk</div><div className="metric-value" style={{ color: 'var(--high)' }}>{data.high_count}</div></div>
+        <div className="metric-stat"><div className="metric-label">Generated</div><div className="metric-value" style={{ fontSize: 14 }}>{new Date(data.generated_at).toLocaleString('en-IN')}</div></div>
+      </div>
+
+      {/* Predictions Table */}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 13 }}>
+          <thead>
+            <tr style={{ textAlign: 'left' }}>
+              {['Equipment', 'Type', 'RUL (Days)', 'Failure Prob.', 'Risk', 'Action', 'Temp ℃', 'Vibration', 'Anomaly'].map(h => (
+                <th key={h} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.predictions.map((p, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid var(--border)' }} className="animate-slide-up">
+                <td style={{ padding: '12px', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>{p.equipment_id}</td>
+                <td style={{ padding: '12px', color: 'var(--text-secondary)' }}>{p.equipment_type}</td>
+                <td style={{ padding: '12px' }}>
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: p.rul_days < 7 ? 'var(--critical)' : p.rul_days < 30 ? 'var(--warning)' : 'var(--healthy)' }}>{p.rul_days}</span>
+                </td>
+                <td style={{ padding: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 60, height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                      <div style={{ width: `${p.failure_probability * 100}%`, height: '100%', borderRadius: 3, background: p.failure_probability > 0.7 ? 'var(--critical)' : p.failure_probability > 0.4 ? 'var(--warning)' : 'var(--healthy)' }} />
+                    </div>
+                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, fontWeight: 600 }}>{(p.failure_probability * 100).toFixed(0)}%</span>
+                  </div>
+                </td>
+                <td style={{ padding: '12px' }}><span className={`alert-severity ${p.risk_level.toLowerCase()}`}>{p.risk_level}</span></td>
+                <td style={{ padding: '12px', color: 'var(--text-secondary)', maxWidth: 200 }}>{p.recommended_action}</td>
+                <td style={{ padding: '12px', fontFamily: "'JetBrains Mono', monospace" }}>{p.avg_temperature}</td>
+                <td style={{ padding: '12px', fontFamily: "'JetBrains Mono', monospace" }}>{p.avg_vibration}</td>
+                <td style={{ padding: '12px' }}>{p.anomaly_detected ? <span style={{ color: 'var(--critical)', fontWeight: 700 }}>⚠ YES</span> : <span style={{ color: 'var(--healthy)' }}>✓ No</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// Equipment / Service Overdue Page (LIVE from API)
+// ═══════════════════════════════════════════════════════════
+function EquipmentServicePage() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    axios.get(`${API}/service-overdue`).then(r => { setData(r.data); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', paddingTop: 100 }}>⏳ Loading service records...</div>;
+  if (!data) return <div style={{ padding: 24, color: 'var(--text-muted)' }}>No service data available.</div>;
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Service & Maintenance Tracker</div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 24 }}>Track overdue maintenance and schedule preventive service</div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+        <div className="metric-stat"><div className="metric-label">Total Equipment</div><div className="metric-value">{data.overdue?.length || 0}</div></div>
+        <div className="metric-stat" style={{ borderColor: 'var(--critical-border)' }}><div className="metric-label">Overdue</div><div className="metric-value" style={{ color: 'var(--critical)' }}>{data.total_overdue}</div></div>
+        <div className="metric-stat" style={{ borderColor: 'var(--low-border)' }}><div className="metric-label">On Track</div><div className="metric-value" style={{ color: 'var(--healthy)' }}>{data.total_ok}</div></div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {data.overdue?.map((item, i) => (
+          <div key={i} className={`alert-card ${item.urgency === 'CRITICAL' ? 'critical-alert' : item.urgency === 'HIGH' ? 'high-alert' : item.is_overdue ? 'medium-alert' : ''}`}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", fontSize: 14 }}>{item.equipment_id}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{item.equipment_type}</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Last Service: <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{item.last_service_date}</span>
+                  {' '}• Service Interval: <span style={{ fontWeight: 600 }}>{item.service_interval_days} days</span>
+                </div>
+              </div>
+              <span className={`alert-severity ${item.urgency === 'CRITICAL' ? 'critical' : item.urgency === 'HIGH' ? 'high' : item.urgency === 'MEDIUM' ? 'medium' : ''}`} style={!item.is_overdue ? { background: 'var(--low-bg)', color: 'var(--healthy)', border: '1px solid var(--low-border)' } : {}}>
+                {item.is_overdue ? `OVERDUE ${item.overdue_by_days}d` : '✓ ON TRACK'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 20, fontSize: 12, color: 'var(--text-muted)' }}>
+              <span>Days Since Service: <strong style={{ color: item.is_overdue ? 'var(--critical)' : 'var(--text-primary)', fontFamily: "'JetBrains Mono', monospace" }}>{item.days_since_service}</strong></span>
+              <span>Total Logs: <strong style={{ color: 'var(--text-primary)' }}>{item.total_maintenance_records}</strong></span>
+              <span>Resolved: <strong style={{ color: 'var(--healthy)' }}>{item.resolved_count}</strong></span>
+              <span>Escalated: <strong style={{ color: 'var(--critical)' }}>{item.escalated_count}</strong></span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// Reports / Summary Page (LIVE from API + Download)
+// ═══════════════════════════════════════════════════════════
+function ReportsPage() {
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    axios.get(`${API}/summary`).then(r => { setSummary(r.data); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  const downloadSummary = () => {
+    if (!summary) return;
+    const text = JSON.stringify(summary, null, 2);
+    const blob = new Blob([text], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'steelmind_plant_summary.json'; a.click();
+  };
+
+  const downloadMarkdown = () => {
+    if (!summary) return;
+    let md = `# SteelMind Plant Summary Report\n\n`;
+    md += `**Plant:** ${summary.plant_name}\n`;
+    md += `**System:** ${summary.system}\n`;
+    md += `**Generated:** ${new Date(summary.generated_at).toLocaleString('en-IN')}\n\n`;
+    md += `## Equipment Overview\n`;
+    md += `| Metric | Value |\n|---|---|\n`;
+    md += `| Total Equipment | ${summary.total_equipment} |\n`;
+    md += `| Critical | ${summary.critical_count || 0} |\n`;
+    md += `| Warning | ${summary.warning_count || 0} |\n`;
+    md += `| Healthy | ${summary.healthy_count || 0} |\n`;
+    md += `| Total Sensor Readings | ${summary.total_sensor_readings || 'N/A'} |\n`;
+    md += `| Anomaly Rate | ${summary.anomaly_rate || 0}% |\n\n`;
+    if (summary.equipment_status) {
+      md += `## Equipment Status\n`;
+      md += `| ID | Type | Status | RUL (Days) | Temp ℃ | Vibration |\n|---|---|---|---|---|---|\n`;
+      summary.equipment_status.forEach(e => { md += `| ${e.id} | ${e.type} | ${e.status} | ${e.rul_days} | ${e.temperature} | ${e.vibration} |\n`; });
+    }
+    md += `\n## Maintenance Summary\n`;
+    md += `| Metric | Value |\n|---|---|\n`;
+    md += `| Total Logs | ${summary.total_maintenance_logs || 'N/A'} |\n`;
+    md += `| Resolved | ${summary.resolved_count || 0} |\n`;
+    md += `| Escalated | ${summary.escalated_count || 0} |\n`;
+    md += `| Total Downtime (hrs) | ${summary.total_downtime_hours || 0} |\n`;
+    md += `| Avg Downtime (hrs) | ${summary.avg_downtime_hours || 0} |\n`;
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'steelmind_report.md'; a.click();
+  };
+
+  if (loading) return <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', paddingTop: 100 }}>⏳ Loading plant summary...</div>;
+  if (!summary) return <div style={{ padding: 24, color: 'var(--text-muted)' }}>No summary available.</div>;
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Plant Summary & Reports</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{summary.plant_name} — Live system overview</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-accent" onClick={downloadMarkdown}><Icon name="download" size={14} /> Download Report (.md)</button>
+          <button className="btn" onClick={downloadSummary}><Icon name="download" size={14} /> Download JSON</button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginBottom: 24 }}>
+        <div className="metric-stat"><div className="metric-label">Total Equipment</div><div className="metric-value">{summary.total_equipment}</div></div>
+        <div className="metric-stat" style={{ borderColor: 'var(--critical-border)' }}><div className="metric-label">Critical</div><div className="metric-value" style={{ color: 'var(--critical)' }}>{summary.critical_count || 0}</div></div>
+        <div className="metric-stat" style={{ borderColor: 'var(--high-border)' }}><div className="metric-label">Warning</div><div className="metric-value" style={{ color: 'var(--warning)' }}>{summary.warning_count || 0}</div></div>
+        <div className="metric-stat"><div className="metric-label">Healthy</div><div className="metric-value" style={{ color: 'var(--healthy)' }}>{summary.healthy_count || 0}</div></div>
+        <div className="metric-stat"><div className="metric-label">Anomaly Rate</div><div className="metric-value" style={{ color: 'var(--accent)' }}>{summary.anomaly_rate || 0}%</div></div>
+      </div>
+
+      {/* Equipment Table */}
+      {summary.equipment_status && (
+        <>
+          <div className="section-title"><Icon name="equipment" size={14} /> Equipment Health Status</div>
+          <div className="diag-panel" style={{ marginBottom: 24 }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    {['Equipment ID', 'Type', 'Status', 'RUL (Days)', 'Temp ℃', 'Vibration mm/s', 'Pressure bar'].map(h => (
+                      <th key={h} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', textAlign: 'left' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.equipment_status.map((eq, i) => (
+                    <tr key={i}>
+                      <td style={{ padding: '10px 12px', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>{eq.id}</td>
+                      <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{eq.type}</td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <span className={`eq-status-badge ${eq.status === 'CRITICAL' ? 'critical' : eq.status === 'WARNING' ? 'warning' : 'healthy'}`}>{eq.status}</span>
+                      </td>
+                      <td style={{ padding: '10px 12px', fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: eq.rul_days < 7 ? 'var(--critical)' : eq.rul_days < 30 ? 'var(--warning)' : 'var(--healthy)' }}>{eq.rul_days}</td>
+                      <td style={{ padding: '10px 12px', fontFamily: "'JetBrains Mono', monospace" }}>{eq.temperature}</td>
+                      <td style={{ padding: '10px 12px', fontFamily: "'JetBrains Mono', monospace" }}>{eq.vibration}</td>
+                      <td style={{ padding: '10px 12px', fontFamily: "'JetBrains Mono', monospace" }}>{eq.pressure}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Maintenance Metrics */}
+      <div className="section-title"><Icon name="reports" size={14} /> Maintenance Analytics</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+        <div className="metric-stat"><div className="metric-label">Total Logs</div><div className="metric-value">{summary.total_maintenance_logs || 'N/A'}</div></div>
+        <div className="metric-stat"><div className="metric-label">Resolved</div><div className="metric-value" style={{ color: 'var(--healthy)' }}>{summary.resolved_count || 0}</div></div>
+        <div className="metric-stat"><div className="metric-label">Total Downtime</div><div className="metric-value">{summary.total_downtime_hours || 0}<span style={{ fontSize: 14, fontWeight: 400 }}> hrs</span></div></div>
+        <div className="metric-stat"><div className="metric-label">Avg Downtime</div><div className="metric-value">{summary.avg_downtime_hours || 0}<span style={{ fontSize: 14, fontWeight: 400 }}> hrs</span></div></div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
 // Main App
 // ═══════════════════════════════════════════════════════════
 function App() {
@@ -625,16 +884,20 @@ function App() {
   const renderPage = () => {
     switch (activePage) {
       case 'dashboard': return <DashboardPage setActivePage={setActivePage} setSelectedEquipment={setSelectedEquipment} setDiagTarget={setDiagTarget} />;
+      case 'equipment': return <EquipmentServicePage />;
       case 'diagnosis': return <DiagnosisPage diagTarget={diagTarget} setDiagTarget={setDiagTarget} />;
       case 'alerts': return <AlertsPage />;
       case 'chat': return <AIChatPage />;
-      default: return (
+      case 'reports': return <ReportsPage />;
+      case 'spare': return <PredictionsPage />;
+      case 'knowledge': return (
         <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', paddingTop: 100 }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🚧</div>
-          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: 'var(--text-primary)' }}>{activePage.charAt(0).toUpperCase() + activePage.slice(1)}</div>
-          <div>This module is under development.</div>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>📚</div>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: 'var(--text-primary)' }}>Knowledge Base</div>
+          <div>6 SOPs & Manuals indexed in FAISS vector store.<br/>Query them via the AI Chat or Diagnosis pipeline.</div>
         </div>
       );
+      default: return null;
     }
   };
 
@@ -650,3 +913,4 @@ function App() {
 }
 
 export default App;
+

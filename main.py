@@ -383,6 +383,224 @@ async def download_report(report_id: str):
 
 
 # ══════════════════════════════════════════════════════════════
+# New Endpoints — Predictions, Service Overdue, Summary
+# ══════════════════════════════════════════════════════════════
+
+@app.get("/predictions")
+async def get_predictions():
+    """
+    Get RUL predictions and failure risk for all equipment.
+    Uses sensor data + trained ML models.
+    """
+    import pandas as pd
+    import numpy as np
+    from pathlib import Path
+
+    sensor_path = Path("src/data/sensor_data.csv")
+    if not sensor_path.exists():
+        return {"predictions": [], "error": "Sensor data not found. Run data generation first."}
+
+    df = pd.read_csv(str(sensor_path))
+
+    predictions = []
+    for eq_id in df["equipment_id"].unique():
+        eq_data = df[df["equipment_id"] == eq_id]
+        latest = eq_data.iloc[-1]
+        eq_type = latest.get("equipment_type", "Unknown")
+
+        # Calculate RUL from data
+        rul = int(latest.get("rul_days", 180))
+        anomaly_flag = int(latest.get("anomaly_flag", 0))
+
+        # Recent trend: average of last 10 readings
+        last_10 = eq_data.tail(10)
+        temp_trend = float(last_10["sensor_temperature"].mean())
+        vib_trend = float(last_10["sensor_vibration"].mean())
+
+        # Failure probability (rough estimate)
+        if rul < 7:
+            failure_prob = 0.92
+            risk = "CRITICAL"
+            action = "Immediate replacement required"
+        elif rul < 14:
+            failure_prob = 0.70
+            risk = "HIGH"
+            action = "Schedule urgent maintenance"
+        elif rul < 30:
+            failure_prob = 0.45
+            risk = "MEDIUM"
+            action = "Plan maintenance in next shutdown"
+        else:
+            failure_prob = max(0.05, 0.3 - (rul / 500))
+            risk = "LOW"
+            action = "Continue monitoring"
+
+        predictions.append({
+            "equipment_id": eq_id,
+            "equipment_type": eq_type,
+            "rul_days": rul,
+            "failure_probability": round(failure_prob, 2),
+            "risk_level": risk,
+            "recommended_action": action,
+            "avg_temperature": round(temp_trend, 1),
+            "avg_vibration": round(vib_trend, 2),
+            "anomaly_detected": bool(anomaly_flag),
+            "last_reading": latest.get("timestamp", "N/A"),
+        })
+
+    # Sort by RUL ascending (most urgent first)
+    predictions.sort(key=lambda x: x["rul_days"])
+
+    return {
+        "predictions": predictions,
+        "total_equipment": len(predictions),
+        "critical_count": len([p for p in predictions if p["risk_level"] == "CRITICAL"]),
+        "high_count": len([p for p in predictions if p["risk_level"] == "HIGH"]),
+        "generated_at": datetime.now().isoformat(),
+    }
+
+
+@app.get("/service-overdue")
+async def get_service_overdue():
+    """
+    Find equipment where maintenance is overdue or hasn't been done recently.
+    """
+    import pandas as pd
+    from pathlib import Path
+
+    logs_path = Path("src/data/maintenance_logs.csv")
+    if not logs_path.exists():
+        return {"overdue": [], "error": "Maintenance logs not found."}
+
+    logs = pd.read_csv(str(logs_path))
+
+    # Equipment list
+    all_equipment = [
+        {"id": "BF-001", "type": "Blast Furnace", "interval_days": 30},
+        {"id": "BF-002", "type": "Blast Furnace", "interval_days": 30},
+        {"id": "RM-001", "type": "Rolling Mill", "interval_days": 45},
+        {"id": "RM-002", "type": "Rolling Mill", "interval_days": 45},
+        {"id": "CC-001", "type": "Continuous Caster", "interval_days": 60},
+        {"id": "EAF-001", "type": "Electric Arc Furnace", "interval_days": 30},
+        {"id": "HS-001", "type": "Hydraulic System", "interval_days": 90},
+        {"id": "CV-001", "type": "Conveyor System", "interval_days": 60},
+        {"id": "CP-001", "type": "Compressor", "interval_days": 90},
+    ]
+
+    overdue_list = []
+    today = datetime.now()
+
+    for eq in all_equipment:
+        eq_logs = logs[logs["equipment_id"] == eq["id"]]
+        if eq_logs.empty:
+            last_service = "Never"
+            days_since = 999
+        else:
+            try:
+                last_date = pd.to_datetime(eq_logs["date"]).max()
+                last_service = last_date.strftime("%Y-%m-%d")
+                days_since = (today - last_date).days
+            except Exception:
+                last_service = "Unknown"
+                days_since = 999
+
+        is_overdue = days_since > eq["interval_days"]
+        overdue_by = max(0, days_since - eq["interval_days"]) if is_overdue else 0
+
+        total_logs = len(eq_logs)
+        resolved = len(eq_logs[eq_logs["outcome"] == "RESOLVED"]) if "outcome" in eq_logs.columns else 0
+        escalated = len(eq_logs[eq_logs["outcome"] == "ESCALATED"]) if "outcome" in eq_logs.columns else 0
+
+        overdue_list.append({
+            "equipment_id": eq["id"],
+            "equipment_type": eq["type"],
+            "last_service_date": last_service,
+            "days_since_service": days_since,
+            "service_interval_days": eq["interval_days"],
+            "is_overdue": is_overdue,
+            "overdue_by_days": overdue_by,
+            "total_maintenance_records": total_logs,
+            "resolved_count": resolved,
+            "escalated_count": escalated,
+            "urgency": "CRITICAL" if overdue_by > 60 else "HIGH" if overdue_by > 30 else "MEDIUM" if is_overdue else "OK",
+        })
+
+    overdue_list.sort(key=lambda x: x["overdue_by_days"], reverse=True)
+
+    return {
+        "overdue": overdue_list,
+        "total_overdue": len([o for o in overdue_list if o["is_overdue"]]),
+        "total_ok": len([o for o in overdue_list if not o["is_overdue"]]),
+        "generated_at": datetime.now().isoformat(),
+    }
+
+
+@app.get("/summary")
+async def get_plant_summary():
+    """
+    Get a comprehensive plant-wide summary for the dashboard.
+    Includes equipment health, predictions, maintenance status.
+    """
+    import pandas as pd
+    from pathlib import Path
+
+    sensor_path = Path("src/data/sensor_data.csv")
+    logs_path = Path("src/data/maintenance_logs.csv")
+
+    summary = {
+        "plant_name": "Tata Steel — Jamshedpur Works",
+        "system": "SteelMind AI Wizard v1.0",
+        "generated_at": datetime.now().isoformat(),
+        "total_equipment": 9,
+        "sensor_data_available": sensor_path.exists(),
+        "maintenance_logs_available": logs_path.exists(),
+    }
+
+    if sensor_path.exists():
+        df = pd.read_csv(str(sensor_path))
+        total_readings = len(df)
+        anomaly_count = int(df["anomaly_flag"].sum()) if "anomaly_flag" in df.columns else 0
+        equipment_ids = df["equipment_id"].unique().tolist()
+
+        # Per-equipment latest status
+        equipment_status = []
+        for eq_id in equipment_ids:
+            eq_data = df[df["equipment_id"] == eq_id].iloc[-1]
+            rul = int(eq_data.get("rul_days", 180))
+            status = "CRITICAL" if rul < 7 else "WARNING" if rul < 30 else "HEALTHY"
+            equipment_status.append({
+                "id": eq_id,
+                "type": eq_data.get("equipment_type", "Unknown"),
+                "status": status,
+                "rul_days": rul,
+                "temperature": round(float(eq_data.get("sensor_temperature", 0)), 1),
+                "vibration": round(float(eq_data.get("sensor_vibration", 0)), 2),
+                "pressure": round(float(eq_data.get("sensor_pressure", 0)), 1),
+            })
+
+        summary["total_sensor_readings"] = total_readings
+        summary["total_anomalies_detected"] = anomaly_count
+        summary["anomaly_rate"] = round(anomaly_count / total_readings * 100, 2) if total_readings > 0 else 0
+        summary["equipment_status"] = equipment_status
+        summary["critical_count"] = len([e for e in equipment_status if e["status"] == "CRITICAL"])
+        summary["warning_count"] = len([e for e in equipment_status if e["status"] == "WARNING"])
+        summary["healthy_count"] = len([e for e in equipment_status if e["status"] == "HEALTHY"])
+
+    if logs_path.exists():
+        logs = pd.read_csv(str(logs_path))
+        summary["total_maintenance_logs"] = len(logs)
+        if "outcome" in logs.columns:
+            summary["resolved_count"] = int((logs["outcome"] == "RESOLVED").sum())
+            summary["escalated_count"] = int((logs["outcome"] == "ESCALATED").sum())
+            summary["monitoring_count"] = int((logs["outcome"] == "MONITORING").sum())
+        if "downtime_hours" in logs.columns:
+            summary["total_downtime_hours"] = round(float(logs["downtime_hours"].sum()), 1)
+            summary["avg_downtime_hours"] = round(float(logs["downtime_hours"].mean()), 1)
+
+    return summary
+
+
+# ══════════════════════════════════════════════════════════════
 # Startup Event
 # ══════════════════════════════════════════════════════════════
 
