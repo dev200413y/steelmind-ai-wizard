@@ -1,0 +1,41 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+*.pkl
+
+# Environment
+.env
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Uploads
+uploads/
+
+# Reports
+reports/
+
+# Data (generated, can be re-created)
+src/data/sensor_data.csv
+src/data/maintenance_logs.csv
+src/data/steelmind_feedback.db
+
+# FAISS index (generated)
+src/knowledge_base/faiss_index/
+
+# Generated docs
+src/knowledge_base/documents/*.pdf
+
+# Models (generated)
+src/models/*.pkl
