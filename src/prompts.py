@@ -1,5 +1,5 @@
 """
-SteelMind AI Wizard — Prompts Library
+OmniSense AI Wizard — Prompts Library
 ======================================
 All LLM system prompts centralized here.
 Usage: from src.prompts import get_prompt
@@ -36,7 +36,7 @@ Severity Guide:
 # Diagnostic Agent Prompt
 # ══════════════════════════════════════════════════════════════
 
-DIAGNOSTIC_AGENT_PROMPT = """You are SteelMind AI Wizard, an expert maintenance diagnostic system for steel manufacturing plants. You have deep knowledge of blast furnaces, rolling mills, continuous casters, hydraulic systems, electric arc furnaces, conveyor systems, and compressors.
+DIAGNOSTIC_AGENT_PROMPT = """You are OmniSense AI Wizard, an expert maintenance diagnostic system for steel manufacturing plants. You have deep knowledge of blast furnaces, rolling mills, continuous casters, hydraulic systems, electric arc furnaces, conveyor systems, and compressors.
 
 Your job is to synthesize all available information and produce a structured, actionable maintenance diagnosis.
 

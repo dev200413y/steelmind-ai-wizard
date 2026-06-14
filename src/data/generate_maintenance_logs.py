@@ -1,5 +1,5 @@
 """
-SteelMind AI Wizard — Synthetic Maintenance Log Generator
+OmniSense AI Wizard — Synthetic Maintenance Log Generator
 ==========================================================
 Generates 500+ maintenance log entries with realistic steel-plant fault
 descriptions, multi-step actions, spare parts, and outcome distributions.
@@ -24,9 +24,9 @@ import pandas as pd
 # Configuration
 # ═══════════════════════════════════════════════════════════════════
 
-SEED: int = int(os.getenv("STEELMIND_SEED", "42"))
+SEED: int = int(os.getenv("OMNISENSE_SEED", "42"))
 OUTPUT_DIR: str = os.getenv(
-    "STEELMIND_DATA_DIR",
+    "OMNISENSE_DATA_DIR",
     str(Path(__file__).resolve().parent),
 )
 OUTPUT_FILE: str = "maintenance_logs.csv"
@@ -455,7 +455,7 @@ def save_maintenance_logs(
 
 if __name__ == "__main__":
     print("═" * 60)
-    print("  SteelMind AI Wizard — Maintenance Log Generator")
+    print("  OmniSense AI Wizard — Maintenance Log Generator")
     print("═" * 60)
 
     df = generate_maintenance_logs()

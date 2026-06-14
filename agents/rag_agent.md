@@ -42,7 +42,7 @@ import os
 FAISS_INDEX_PATH = "src/knowledge_base/faiss_index"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
-def run_rag(state: SteelMindState) -> SteelMindState:
+def run_rag(state: OmniSenseState) -> OmniSenseState:
     """
     Retrieve top-5 relevant knowledge chunks for the current query.
     Uses FAISS vector similarity search with MiniLM embeddings.

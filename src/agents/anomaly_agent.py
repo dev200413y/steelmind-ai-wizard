@@ -1,5 +1,5 @@
 """
-SteelMind AI Wizard — Anomaly Agent
+OmniSense AI Wizard — Anomaly Agent
 ====================================
 Processes uploaded sensor CSV data to detect statistical anomalies, predict
 Remaining Useful Life (RUL), and trigger real-time alerts.
@@ -10,7 +10,8 @@ import pandas as pd
 import numpy as np
 import joblib
 
-from src.schemas import SteelMindState
+from src.schemas import OmniSenseState
+from langchain_core.messages import ToolMessage
 
 logger = logging.getLogger(__name__)
 
@@ -77,20 +78,40 @@ def generate_sensor_recommendations(anomaly_score: float, rul_days: int) -> list
         recs.append("Sensor readings within acceptable limits.")
     return recs
 
-def run_anomaly(state: SteelMindState) -> SteelMindState:
+def run_anomaly(state: OmniSenseState) -> OmniSenseState:
     """
     Detect anomalies in sensor CSV using Isolation Forest.
     Predict RUL using XGBoost regression model.
     """
-    logger.info("📊 Running Anomaly Agent")
+    # Extract tool call
+    messages = state.get("messages", [])
+    if not messages: return state
+    last_msg = messages[-1]
     
-    if not state.get("csv_path"):
-        logger.info("   No CSV path provided. Skipping anomaly detection.")
+    tool_call_id = None
+    if hasattr(last_msg, "tool_calls"):
+        for tc in last_msg.tool_calls:
+            if tc["name"] == "run_anomaly":
+                tool_call_id = tc["id"]
+                break
+                
+    if not tool_call_id:
         return state
+
+    state["agent_status"] = "Analyzing sensor data for anomalies..."
+
+    csv_paths = state.get("csv_paths", [])
+    if not csv_paths:
+        logger.info("   No CSV path provided. Skipping anomaly detection.")
+        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_anomaly", content="No sensor CSV provided to analyze."))
+        state["agent_status"] = "Anomaly analysis skipped (no CSV)."
+        return state
+
+    csv_path = csv_paths[-1]
         
     try:
         # Load sensor data
-        df = pd.read_csv(state["csv_path"])
+        df = pd.read_csv(csv_path)
         
         if len(df) < 10:
             logger.warning("   CSV has fewer than 10 rows. Need more data for accurate prediction.")
@@ -139,9 +160,25 @@ def run_anomaly(state: SteelMindState) -> SteelMindState:
             state["force_critical"] = True
             logger.warning("   🚨 CRITICAL ALERT TRIGGERED: RUL < 7 days")
             
+        # Append ToolMessage
+        import json
+        
+        # Omit trend_data from tool message to save context window tokens
+        tool_res = dict(state["anomaly_result"])
+        tool_res.pop("trend_data", None)
+        
+        tool_msg = ToolMessage(
+            tool_call_id=tool_call_id,
+            name="run_anomaly",
+            content=f"Anomaly Analysis Result: {json.dumps(tool_res)}"
+        )
+        state["messages"].append(tool_msg)
+            
         logger.info(f"   Anomaly analysis complete. Score: {anomaly_score_normalized:.2f}, RUL: {rul_days} days")
         
     except Exception as e:
         logger.error(f"❌ Anomaly Agent failed: {str(e)}")
+        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_anomaly", content=f"Anomaly Agent failed: {e}"))
         
+    state["agent_status"] = "Sensor analysis complete."
     return state

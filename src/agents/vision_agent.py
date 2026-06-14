@@ -1,5 +1,5 @@
 """
-SteelMind AI Wizard — Vision Agent
+OmniSense AI Wizard — Vision Agent
 =====================================
 Analyzes uploaded equipment photographs using Gemini 1.5 Flash
 to identify visual faults (corrosion, cracks, overheating, wear, leaks).
@@ -14,8 +14,9 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.schemas import SteelMindState, VisionOutput
+from src.schemas import OmniSenseState, VisionOutput
 from src.prompts import get_prompt
+from langchain_core.messages import ToolMessage
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ _VISION_FALLBACK: Dict[str, Any] = {
 # Public Entry Point
 # ══════════════════════════════════════════════════════════════
 
-def run_vision(state: SteelMindState) -> SteelMindState:
+def run_vision(state: OmniSenseState) -> OmniSenseState:
     """
     Analyze an equipment image using Gemini 1.5 Flash vision model.
 
@@ -53,14 +54,36 @@ def run_vision(state: SteelMindState) -> SteelMindState:
         state: The shared LangGraph pipeline state.
 
     Returns:
-        SteelMindState: Updated state with ``vision_output`` populated.
+        OmniSenseState: Updated state with ``vision_output`` populated.
     """
-    # Skip if no image
-    if not state.get("has_image") or not state.get("image_path"):
-        logger.info("Vision Agent skipped — no image provided.")
+    # Extract tool call
+    messages = state.get("messages", [])
+    if not messages: return state
+    last_msg = messages[-1]
+    
+    tool_call_id = None
+    if hasattr(last_msg, "tool_calls"):
+        for tc in last_msg.tool_calls:
+            if tc["name"] == "run_vision":
+                tool_call_id = tc["id"]
+                break
+                
+    if not tool_call_id:
         return state
 
-    image_path = state["image_path"]
+    state["agent_status"] = "Analyzing equipment image with Vision AI..."
+
+    # Extract image path (either from state or tool args)
+    # The OmniSenseState holds list of image_paths now
+    image_paths = state.get("image_paths", [])
+    if not image_paths:
+        logger.info("Vision Agent skipped — no image provided.")
+        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_vision", content="No image provided to analyze."))
+        state["agent_status"] = "Vision analysis skipped (no image)."
+        return state
+
+    # Just take the latest image
+    image_path = image_paths[-1]
 
     try:
         # Validate file exists
@@ -91,8 +114,16 @@ def run_vision(state: SteelMindState) -> SteelMindState:
             prompt,
         ])
 
-        # Parse structured JSON from response
         state["vision_output"] = _parse_vision_json(response.text)
+        
+        # Append ToolMessage
+        tool_msg = ToolMessage(
+            tool_call_id=tool_call_id,
+            name="run_vision",
+            content=f"Vision Analysis Result: {json.dumps(state['vision_output'])}"
+        )
+        state["messages"].append(tool_msg)
+        
         logger.info(
             "Vision analysis complete — fault=%s, severity=%s, confidence=%.2f",
             state["vision_output"].get("fault_detected"),
@@ -105,7 +136,9 @@ def run_vision(state: SteelMindState) -> SteelMindState:
         fallback = dict(_VISION_FALLBACK)
         fallback["error"] = str(exc)
         state["vision_output"] = fallback
+        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_vision", content=f"Vision failed: {exc}"))
 
+    state["agent_status"] = "Vision analysis complete."
     return state
 
 
@@ -113,7 +146,7 @@ def run_vision(state: SteelMindState) -> SteelMindState:
 # Helpers
 # ══════════════════════════════════════════════════════════════
 
-def _build_vision_prompt(state: SteelMindState) -> str:
+def _build_vision_prompt(state: OmniSenseState) -> str:
     """
     Build the vision analysis prompt with optional equipment context.
 

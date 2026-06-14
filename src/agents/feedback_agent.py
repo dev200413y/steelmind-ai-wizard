@@ -1,5 +1,5 @@
 """
-SteelMind AI Wizard — Feedback Agent
+OmniSense AI Wizard — Feedback Agent
 ======================================
 Captures engineer feedback and stores it in SQLite.
 """
@@ -11,7 +11,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path("src/data/steelmind_feedback.db")
+DB_PATH = Path("src/data/omnisense_feedback.db")
 
 def init_db():
     """Initialize SQLite database tables."""

@@ -1,11 +1,12 @@
 """
-SteelMind AI Wizard — Risk Scorer Agent
+OmniSense AI Wizard — Risk Scorer Agent
 ========================================
 Assigns a final risk level based on weighted multi-factor analysis.
 """
 
 import logging
-from src.schemas import SteelMindState
+from src.schemas import OmniSenseState
+from langchain_core.messages import ToolMessage
 
 logger = logging.getLogger(__name__)
 
@@ -34,21 +35,36 @@ WEIGHTS = {
     "maintenance_overdue": 0.05
 }
 
-def check_spare_availability(state: SteelMindState) -> float:
+def check_spare_availability(state: OmniSenseState) -> float:
     """Mock spare part availability score."""
     # In a real system, this would query an inventory DB.
     # For now, return 0.5 (medium risk)
     return 0.5
 
-def check_maintenance_overdue(state: SteelMindState) -> float:
+def check_maintenance_overdue(state: OmniSenseState) -> float:
     """Mock maintenance overdue score."""
     # In a real system, this would query a maintenance log DB.
     # For now, return 0.5
     return 0.5
 
-def run_risk_scorer(state: SteelMindState) -> SteelMindState:
+def run_risk_scorer(state: OmniSenseState) -> OmniSenseState:
     """Calculate weighted risk score from all available signals."""
-    logger.info("⚖️ Running Risk Scorer")
+    # Extract tool call
+    messages = state.get("messages", [])
+    if not messages: return state
+    last_msg = messages[-1]
+    
+    tool_call_id = None
+    if hasattr(last_msg, "tool_calls"):
+        for tc in last_msg.tool_calls:
+            if tc["name"] == "run_risk_scorer":
+                tool_call_id = tc["id"]
+                break
+                
+    if not tool_call_id:
+        return state
+
+    state["agent_status"] = "Evaluating operational risk..."
     
     # Immediate override
     if state.get("force_critical"):
@@ -60,6 +76,10 @@ def run_risk_scorer(state: SteelMindState) -> SteelMindState:
             "urgency_hours": 2,
             "escalate_to_supervisor": True
         }
+        
+        import json
+        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_risk_scorer", content=f"Risk Score: {json.dumps(state['risk_details'])}"))
+        state["agent_status"] = "Risk evaluation complete."
         return state
     
     try:
@@ -112,11 +132,16 @@ def run_risk_scorer(state: SteelMindState) -> SteelMindState:
             "escalate_to_supervisor": risk_level in ["HIGH", "CRITICAL"]
         }
         
+        import json
+        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_risk_scorer", content=f"Risk Score: {json.dumps(state['risk_details'])}"))
+        
         logger.info(f"   Risk scoring complete. Final Risk: {risk_level} (Score: {final_score:.3f})")
         
     except Exception as e:
         logger.error(f"❌ Risk Scorer failed: {str(e)}")
         state["risk_level"] = "MEDIUM" # Fallback
         state["risk_details"] = {"final_risk": "MEDIUM", "error": str(e)}
+        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_risk_scorer", content=f"Risk Scorer failed: {e}"))
         
+    state["agent_status"] = "Risk evaluation complete."
     return state

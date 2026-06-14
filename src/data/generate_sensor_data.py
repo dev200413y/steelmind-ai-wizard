@@ -1,5 +1,5 @@
 """
-SteelMind AI Wizard — Synthetic Sensor Data Generator
+OmniSense AI Wizard — Synthetic Sensor Data Generator
 ======================================================
 Generates ~50,000 rows of 6-month sensor time-series data for 9 equipment
 units across a steel plant.  Includes realistic daily/weekly cycles,
@@ -26,9 +26,9 @@ import pandas as pd
 # Configuration
 # ═══════════════════════════════════════════════════════════════════
 
-SEED: int = int(os.getenv("STEELMIND_SEED", "42"))
+SEED: int = int(os.getenv("OMNISENSE_SEED", "42"))
 OUTPUT_DIR: str = os.getenv(
-    "STEELMIND_DATA_DIR",
+    "OMNISENSE_DATA_DIR",
     str(Path(__file__).resolve().parent),
 )
 OUTPUT_FILE: str = "sensor_data.csv"
@@ -511,7 +511,7 @@ def save_sensor_data(df: pd.DataFrame, output_dir: str = OUTPUT_DIR) -> Path:
 
 if __name__ == "__main__":
     print("═" * 60)
-    print("  SteelMind AI Wizard — Sensor Data Generator")
+    print("  OmniSense AI Wizard — Sensor Data Generator")
     print("═" * 60)
 
     df = generate_sensor_data()

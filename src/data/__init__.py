@@ -1,1 +1,1 @@
-# SteelMind AI Wizard — Data generation package
+# OmniSense AI Wizard — Data generation package

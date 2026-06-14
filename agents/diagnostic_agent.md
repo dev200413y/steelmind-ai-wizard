@@ -1,7 +1,7 @@
 # Diagnostic Agent
 
 ## Role
-Core reasoning engine of SteelMind AI Wizard. Combines outputs from Vision Agent, RAG Agent, and Anomaly Agent to produce final fault diagnosis, root cause analysis, and step-by-step repair recommendations. Uses Mistral Small 3.1 via Groq API.
+Core reasoning engine of OmniSense AI Wizard. Combines outputs from Vision Agent, RAG Agent, and Anomaly Agent to produce final fault diagnosis, root cause analysis, and step-by-step repair recommendations. Uses Mistral Small 3.1 via Groq API.
 
 ## Read First
 - `references/schemas.md` — DiagnosisOutput schema
@@ -45,7 +45,7 @@ import json
 
 GROQ_MODEL = "mistral-smal-3.1-latest"  # Groq model string
 
-def run_diagnostic(state: SteelMindState) -> SteelMindState:
+def run_diagnostic(state: OmniSenseState) -> OmniSenseState:
     """
     Core diagnosis using Mistral via Groq.
     Combines vision + RAG + anomaly into structured diagnosis.
@@ -79,7 +79,7 @@ def run_diagnostic(state: SteelMindState) -> SteelMindState:
 
 ## Context Builder
 ```python
-def build_diagnostic_context(state: SteelMindState) -> str:
+def build_diagnostic_context(state: OmniSenseState) -> str:
     """
     Assembles all agent outputs into a single context string for Mistral.
     """

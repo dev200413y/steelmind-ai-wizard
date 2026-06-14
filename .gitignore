@@ -29,7 +29,7 @@ reports/
 # Data (generated, can be re-created)
 src/data/sensor_data.csv
 src/data/maintenance_logs.csv
-src/data/steelmind_feedback.db
+src/data/omnisense_feedback.db
 
 # FAISS index (generated)
 src/knowledge_base/faiss_index/

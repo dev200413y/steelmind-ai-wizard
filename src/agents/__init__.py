@@ -1,1 +1,1 @@
-# SteelMind AI Wizard — Agents Package
+# OmniSense AI Wizard — Agents Package

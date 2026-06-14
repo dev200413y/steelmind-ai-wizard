@@ -62,7 +62,7 @@ SENSOR_COLUMNS = [
     "sensor_current"
 ]
 
-def run_anomaly(state: SteelMindState) -> SteelMindState:
+def run_anomaly(state: OmniSenseState) -> OmniSenseState:
     """
     Detect anomalies in sensor CSV using Isolation Forest.
     Predict RUL using XGBoost regression model.

@@ -1,4 +1,4 @@
-# SteelMind AI Wizard — Dependencies
+# OmniSense AI Wizard — Dependencies
 # Tata Steel AI Hackathon 2026
 
 # ── Agent Framework ──

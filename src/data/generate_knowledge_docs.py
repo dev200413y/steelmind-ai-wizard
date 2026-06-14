@@ -1,5 +1,5 @@
 """
-SteelMind AI Wizard — Synthetic Knowledge Documents Generator
+OmniSense AI Wizard — Synthetic Knowledge Documents Generator
 =============================================================
 Generates PDF files with synthetic knowledge base content.
 
@@ -24,7 +24,7 @@ KB_DIR.mkdir(parents=True, exist_ok=True)
 class DocumentGenerator(FPDF):
     def header(self):
         self.set_font("Arial", "B", 12)
-        self.cell(0, 10, "Tata Steel - SteelMind AI Wizard Knowledge Base", 0, 1, "C")
+        self.cell(0, 10, "Tata Steel - OmniSense AI Wizard Knowledge Base", 0, 1, "C")
         self.ln(5)
 
     def footer(self):

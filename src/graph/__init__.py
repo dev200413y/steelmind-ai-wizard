@@ -1,1 +1,1 @@
-# SteelMind AI Wizard — Graph Package
+# OmniSense AI Wizard — Graph Package

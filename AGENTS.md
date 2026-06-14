@@ -1,10 +1,10 @@
-# SteelMind AI Wizard — AGENTS.md
+# OmniSense AI Wizard — AGENTS.md
 > Antigravity Project Instructions | Tata Steel AI Hackathon 2026
 
 ## Project Overview
-SteelMind AI Wizard is a **Multimodal Multi-Agent AI Maintenance Decision Support System** for steel plant industrial equipment. It accepts Voice + Image + Text + CSV + PDF as inputs and delivers fault diagnosis, root cause analysis, risk scoring, RUL prediction, and structured maintenance reports as outputs.
+OmniSense AI Wizard is a **Multimodal Multi-Agent AI Maintenance Decision Support System** for steel plant industrial equipment. It accepts Voice + Image + Text + CSV + PDF as inputs and delivers fault diagnosis, root cause analysis, risk scoring, RUL prediction, and structured maintenance reports as outputs.
 
-**GitHub:** `steelmind-ai-wizard`  
+**GitHub:** `omnisense-ai-wizard`  
 **Tagline:** *"See it. Say it. Solve it."*
 
 ---
@@ -30,7 +30,7 @@ SteelMind AI Wizard is a **Multimodal Multi-Agent AI Maintenance Decision Suppor
 
 ## Project Structure
 ```
-steelmind-ai-wizard/
+omnisense-ai-wizard/
 ├── AGENTS.md                    ← You are here
 ├── README.md
 ├── requirements.txt
@@ -64,7 +64,7 @@ steelmind-ai-wizard/
 │   │   ├── report_generator.py
 │   │   └── feedback_agent.py
 │   ├── graph/
-│   │   └── steelmind_graph.py   ← LangGraph DAG definition
+│   │   └── omnisense_graph.py   ← LangGraph DAG definition
 │   ├── models/
 │   │   ├── isolation_forest.pkl ← Trained anomaly model
 │   │   └── rul_model.pkl        ← Trained RUL model
@@ -96,7 +96,7 @@ MISTRAL_API_KEY=your_mistral_api_key    # https://console.mistral.ai (free)
 ## LangGraph Shared State Schema
 **ALWAYS import from references/schemas.md before writing any agent code.**
 ```python
-class SteelMindState(TypedDict):
+class OmniSenseState(TypedDict):
     # Input
     query: str
     language: str                    # detected language code: hi/or/bn/en/nl/th
@@ -145,7 +145,7 @@ class SteelMindState(TypedDict):
 5. `src/utils/voice.py` — STT + TTS
 6. `src/agents/anomaly_agent.py` — Sensor analysis
 7. `src/agents/risk_scorer.py` — Risk classification
-8. `src/graph/steelmind_graph.py` — Wire all agents
+8. `src/graph/omnisense_graph.py` — Wire all agents
 9. `src/agents/report_generator.py` — Output
 10. `src/agents/feedback_agent.py` — Learning loop
 11. `main.py` — FastAPI layer
@@ -156,7 +156,7 @@ class SteelMindState(TypedDict):
 ## Coding Conventions
 - Python 3.11+ only
 - Type hints mandatory on all functions
-- Every agent function returns updated `SteelMindState`
+- Every agent function returns updated `OmniSenseState`
 - No hardcoded API keys — always use `os.getenv()`
 - Every function must have a docstring
 - Error handling in every agent — never let one agent crash the pipeline

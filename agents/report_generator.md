@@ -46,7 +46,7 @@ state["report"] = {
 
 ## Report Template
 ```markdown
-# SteelMind AI Wizard — Maintenance Report
+# OmniSense AI Wizard — Maintenance Report
 **Report ID:** {report_id}
 **Date:** {date}
 **Equipment:** {equipment_id} — {equipment_type}
@@ -119,7 +119,7 @@ def generate_pdf(report_content: dict) -> str:
 ## Chat Summary (Short Version)
 ```python
 # For chat interface — concise version
-def generate_chat_summary(state: SteelMindState) -> str:
+def generate_chat_summary(state: OmniSenseState) -> str:
     """
     3-4 line summary for chat display.
     Full report available via download button.

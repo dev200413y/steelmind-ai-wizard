@@ -1,5 +1,5 @@
 """
-SteelMind AI Wizard — RAG Agent
+OmniSense AI Wizard — RAG Agent
 =================================
 Retrieves the top-5 most relevant knowledge chunks from the
 FAISS vector index for the current maintenance query.
@@ -12,8 +12,9 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-from src.schemas import SteelMindState, RAGChunk
+from src.schemas import OmniSenseState, RAGChunk
 from src.utils.embeddings import get_embeddings
+from langchain_core.messages import ToolMessage
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ TOP_K = 5
 # Public Entry Point
 # ══════════════════════════════════════════════════════════════
 
-def run_rag(state: SteelMindState) -> SteelMindState:
+def run_rag(state: OmniSenseState) -> OmniSenseState:
     """
     Retrieve top-5 relevant knowledge chunks for the current query.
 
@@ -50,18 +51,34 @@ def run_rag(state: SteelMindState) -> SteelMindState:
         state: The shared LangGraph pipeline state.
 
     Returns:
-        SteelMindState: Updated state with ``rag_context`` populated.
+        OmniSenseState: Updated state with ``rag_context`` populated.
     """
+    # Extract tool call
+    messages = state.get("messages", [])
+    if not messages: return state
+    last_msg = messages[-1]
+    
+    tool_call_id = None
+    query = state.get("query", "")
+    if hasattr(last_msg, "tool_calls"):
+        for tc in last_msg.tool_calls:
+            if tc["name"] == "run_rag":
+                tool_call_id = tc["id"]
+                query = tc["args"].get("query", query)
+                break
+                
+    if not tool_call_id:
+        return state
+
+    state["agent_status"] = "Querying knowledge base manuals..."
+
     try:
         # Guard: check that the FAISS index exists
         if not Path(FAISS_INDEX_PATH).exists():
-            logger.warning(
-                "FAISS index not found at %s — returning empty context. "
-                "Run `python src/knowledge_base/index_docs.py` first.",
-                FAISS_INDEX_PATH,
-            )
+            logger.warning("FAISS index not found.")
             state["rag_context"] = []
             state["rag_error"] = f"FAISS index not found at {FAISS_INDEX_PATH}"
+            state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_rag", content="FAISS index missing."))
             return state
 
         # 1. Load embeddings (singleton — fast on subsequent calls)
@@ -97,6 +114,15 @@ def run_rag(state: SteelMindState) -> SteelMindState:
             rag_chunks.append(chunk)
 
         state["rag_context"] = rag_chunks
+        
+        # Append ToolMessage
+        tool_msg = ToolMessage(
+            tool_call_id=tool_call_id,
+            name="run_rag",
+            content=f"Found {len(rag_chunks)} manuals. Context: {str(rag_chunks)}"
+        )
+        state["messages"].append(tool_msg)
+        
         logger.info(
             "RAG retrieved %d chunks (top score: %.4f)",
             len(rag_chunks),
@@ -107,7 +133,9 @@ def run_rag(state: SteelMindState) -> SteelMindState:
         logger.error("RAG Agent failed: %s", exc, exc_info=True)
         state["rag_context"] = []
         state["rag_error"] = str(exc)
+        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_rag", content=f"RAG search failed: {exc}"))
 
+    state["agent_status"] = "RAG search complete."
     return state
 
 
@@ -115,7 +143,7 @@ def run_rag(state: SteelMindState) -> SteelMindState:
 # Helpers
 # ══════════════════════════════════════════════════════════════
 
-def _build_search_query(state: SteelMindState) -> str:
+def _build_search_query(state: OmniSenseState) -> str:
     """
     Build an enriched search query by prepending equipment context.
 

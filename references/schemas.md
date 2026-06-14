@@ -1,27 +1,33 @@
-# SteelMind AI Wizard — All Schemas
+# OmniSense AI Wizard — All Schemas
 > Read this FIRST before writing any agent code.
 
 ---
 
 ## Main LangGraph State
 ```python
-from typing import TypedDict, Optional, List, Dict, Any
+from typing import TypedDict, Optional, List, Dict, Any, Annotated
+from langgraph.graph.message import add_messages
+from langchain_core.messages import BaseMessage
 
-class SteelMindState(TypedDict):
-    # ── User Input ──────────────────────────────
-    query: str                          # Text or STT-transcribed query
+class OmniSenseState(TypedDict):
+    # ── Conversation History ─────────────────────
+    messages: Annotated[List[BaseMessage], add_messages]
+    
+    # ── Agent Status (For WebSocket Streaming) ───
+    agent_status: Optional[str]         # e.g., "Analyzing image...", "Querying RAG..."
+    
+    # ── Multimodal/Context Variables ─────────────
     language: str                       # hi|or|bn|en|nl|th|unknown
     has_image: bool
     has_csv: bool
     has_docs: bool
-    image_path: Optional[str]
-    csv_path: Optional[str]
-    doc_paths: Optional[List[str]]
+    image_paths: List[str]              # Allowing multiple uploads during chat
+    csv_paths: List[str]
     equipment_id: Optional[str]         # e.g. "BF-001"
     equipment_type: Optional[str]       # e.g. "Blast Furnace"
     session_id: str
 
-    # ── Agent Outputs ────────────────────────────
+    # ── Agent/Tool Outputs (Stored for Context) ──
     vision_output: Optional[Dict]       # VisionOutput
     rag_context: Optional[List[Dict]]   # List of RAGChunk
     anomaly_result: Optional[Dict]      # AnomalyResult

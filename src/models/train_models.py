@@ -1,5 +1,5 @@
 """
-SteelMind AI Wizard — ML Model Training Script
+OmniSense AI Wizard — ML Model Training Script
 ================================================
 Trains Isolation Forest (anomaly detection) and XGBoost (RUL prediction)
 on synthetic sensor data.
@@ -186,7 +186,7 @@ def train_all_models():
         - scaler.pkl — Feature scaler (shared by both models)
     """
     logger.info("=" * 60)
-    logger.info("🏭 SteelMind AI Wizard — Model Training")
+    logger.info("🏭 OmniSense AI Wizard — Model Training")
     logger.info("=" * 60)
 
     # Ensure models directory exists

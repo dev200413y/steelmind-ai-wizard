@@ -1,1 +1,1 @@
-# SteelMind AI Wizard — Utilities Package
+# OmniSense AI Wizard — Utilities Package

@@ -38,7 +38,7 @@ import google.generativeai as genai
 import base64
 from pathlib import Path
 
-def run_vision(state: SteelMindState) -> SteelMindState:
+def run_vision(state: OmniSenseState) -> OmniSenseState:
     """
     Analyze equipment image using Gemini 1.5 Flash vision model.
     Returns structured fault detection JSON in state.

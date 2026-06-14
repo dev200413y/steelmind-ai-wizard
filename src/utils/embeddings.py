@@ -1,5 +1,5 @@
 """
-SteelMind AI Wizard — Embeddings Utility
+OmniSense AI Wizard — Embeddings Utility
 ==========================================
 Singleton loader for the sentence-transformers embedding model.
 Used by RAG Agent and Knowledge Base Indexer.

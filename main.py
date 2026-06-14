@@ -1,7 +1,7 @@
 """
-SteelMind AI Wizard — FastAPI Backend
+OmniSense AI Wizard — FastAPI Backend
 ======================================
-Main entry point for the SteelMind REST API.
+Main entry point for the OmniSense REST API.
 
 Endpoints:
     POST /diagnose  — Text + optional image/CSV/PDF upload
@@ -19,13 +19,16 @@ import os
 import uuid
 import shutil
 import logging
+import asyncio
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -36,14 +39,14 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(name)s | %(levelname)s | %(message)s"
 )
-logger = logging.getLogger("steelmind")
+logger = logging.getLogger("omnisense")
 
 # ══════════════════════════════════════════════════════════════
 # App Initialization
 # ══════════════════════════════════════════════════════════════
 
 app = FastAPI(
-    title="SteelMind AI Wizard",
+    title="OmniSense AI Wizard",
     description="Multimodal Multi-Agent AI Maintenance Decision Support System for Steel Plants",
     version="1.0.0",
     docs_url="/docs",
@@ -62,6 +65,11 @@ app.add_middleware(
 # Upload directory
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+# Mount audio responses for frontend playback
+audio_dir = UPLOAD_DIR / "audio_responses"
+audio_dir.mkdir(exist_ok=True)
+app.mount("/audio", StaticFiles(directory=str(audio_dir)), name="audio")
 
 # Reports directory
 REPORTS_DIR = Path("reports")
@@ -109,7 +117,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "service": "SteelMind AI Wizard",
+        "service": "OmniSense AI Wizard",
         "version": "1.0.0",
         "timestamp": datetime.now().isoformat(),
         "agents": [
@@ -187,7 +195,7 @@ async def diagnose(
 
     try:
         # Run the LangGraph pipeline
-        from src.graph.steelmind_graph import run_pipeline
+        from src.graph.omnisense_graph import run_pipeline
         result = await run_pipeline(initial_state)
 
         # Store in session history
@@ -204,9 +212,18 @@ async def diagnose(
             }
         }
 
+        # Extract conversational AI response if it exists
+        chat_response = None
+        if "messages" in result and result["messages"]:
+            for msg in reversed(result["messages"]):
+                if getattr(msg, "type", "") == "ai" and not getattr(msg, "tool_calls", []):
+                    chat_response = msg.content
+                    break
+
         return {
             "session_id": session_id,
             "status": "success",
+            "chat_response": chat_response,
             "diagnosis": result.get("diagnosis"),
             "risk_level": result.get("risk_level"),
             "risk_details": result.get("risk_details"),
@@ -249,8 +266,12 @@ async def voice_diagnose(
 
     try:
         # Transcribe with Whisper
-        from src.utils.voice import transcribe_audio, text_to_speech
-        text, language = transcribe_audio(audio_path)
+        from src.utils.voice import speech_to_text, text_to_speech
+        
+        stt_result = speech_to_text(audio_path)
+        text = stt_result.get("text", "")
+        language = stt_result.get("language", "en")
+        
         logger.info(f"📝 Transcribed: '{text[:80]}...' | Language: {language}")
 
         # Save image if provided
@@ -268,7 +289,7 @@ async def voice_diagnose(
             "image_path": image_path,
         }
 
-        from src.graph.steelmind_graph import run_pipeline
+        from src.graph.omnisense_graph import run_pipeline
         result = await run_pipeline(initial_state)
 
         # Generate voice response
@@ -280,7 +301,10 @@ async def voice_diagnose(
 
         audio_response_path = None
         if response_text:
-            audio_response_path = text_to_speech(response_text, language)
+            audio_path_abs = text_to_speech(response_text, language)
+            if audio_path_abs:
+                audio_filename = os.path.basename(audio_path_abs)
+                audio_response_path = f"http://localhost:8000/audio/{audio_filename}"
 
         return {
             "session_id": session_id,
@@ -344,7 +368,7 @@ async def submit_feedback(
             "feedback_id": result.get("feedback_id"),
             "saved": result.get("saved"),
             "knowledge_updated": result.get("knowledge_updated"),
-            "message": "Thank you! Your feedback helps improve SteelMind."
+            "message": "Thank you! Your feedback helps improve OmniSense."
         }
 
     except Exception as e:
@@ -371,15 +395,752 @@ async def get_all_history():
 
 @app.get("/report/{report_id}")
 async def download_report(report_id: str):
-    """Download a generated maintenance report PDF."""
+    """Download a generated maintenance report (PDF or Markdown)."""
     pdf_path = REPORTS_DIR / f"{report_id}.pdf"
-    if not pdf_path.exists():
-        raise HTTPException(status_code=404, detail="Report not found")
-    return FileResponse(
-        path=str(pdf_path),
-        filename=f"{report_id}.pdf",
-        media_type="application/pdf"
-    )
+    md_path = REPORTS_DIR / f"{report_id}.md"
+    # Try PDF first, then MD
+    if pdf_path.exists():
+        return FileResponse(
+            path=str(pdf_path),
+            filename=f"{report_id}.pdf",
+            media_type="application/pdf"
+        )
+    elif md_path.exists():
+        return FileResponse(
+            path=str(md_path),
+            filename=f"{report_id}.md",
+            media_type="text/markdown"
+        )
+    raise HTTPException(status_code=404, detail="Report not found")
+
+
+# ══════════════════════════════════════════════════════════════
+# Voice Endpoints
+# ══════════════════════════════════════════════════════════════
+
+@app.post("/api/voice/stt")
+async def speech_to_text_endpoint(audio: UploadFile = File(...)):
+    """Convert voice audio to text using Whisper STT."""
+    from src.utils.voice import speech_to_text
+    
+    upload_dir = os.getenv("UPLOAD_DIR", "uploads")
+    os.makedirs(f"{upload_dir}/audio_responses", exist_ok=True)
+    
+    audio_path = f"{upload_dir}/audio_{uuid.uuid4()}.webm"
+    with open(audio_path, "wb") as f:
+        shutil.copyfileobj(audio.file, f)
+    
+    try:
+        result = speech_to_text(audio_path)
+        return result
+    finally:
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+
+
+@app.post("/api/voice/tts")
+async def text_to_speech_endpoint(
+    text: str = Form(...),
+    language: str = Form("en")
+):
+    """Convert text to speech audio."""
+    from src.utils.voice import text_to_speech
+    mp3_path = text_to_speech(text, language)
+    return FileResponse(mp3_path, media_type="audio/mpeg")
+
+
+# ══════════════════════════════════════════════════════════════
+# WebSocket for Real-time Agent Status & Chat
+# ══════════════════════════════════════════════════════════════
+
+from langchain_core.messages import HumanMessage
+from src.graph.omnisense_graph import get_pipeline
+
+# Global dictionary to store state for active WebSocket sessions
+ws_session_state = {}
+
+@app.websocket("/ws/chat/{session_id}")
+async def chat_websocket(websocket: WebSocket, session_id: str):
+    """
+    WebSocket for continuous OmniSense chat and status streaming.
+    Frontend connects here to send messages and get live agent progress.
+    """
+    await websocket.accept()
+    pipeline = get_pipeline()
+    
+    # Initialize session state if not exists
+    if session_id not in ws_session_state:
+        ws_session_state[session_id] = {
+            "messages": [],
+            "session_id": session_id,
+            "language": "en",
+            "has_image": False,
+            "has_csv": False,
+            "has_docs": False,
+            "image_paths": [],
+            "csv_paths": [],
+            "equipment_id": None,
+            "equipment_type": None,
+            "agent_status": None,
+            "vision_output": None,
+            "rag_context": None,
+            "anomaly_result": None,
+            "diagnosis": None,
+            "risk_level": None,
+            "report": None,
+            "force_critical": None,
+            "rag_error": None,
+            "pipeline_errors": []
+        }
+        
+    try:
+        while True:
+            data = await websocket.receive_json()
+            
+            user_text = data.get("text", "")
+            if not user_text:
+                continue
+                
+            # Update state with new user message
+            human_msg = HumanMessage(content=user_text)
+            ws_session_state[session_id]["messages"].append(human_msg)
+            
+            # Update context if provided dynamically mid-chat
+            if data.get("equipment_id"):
+                ws_session_state[session_id]["equipment_id"] = data["equipment_id"]
+            if data.get("image_path"):
+                ws_session_state[session_id]["image_paths"].append(data["image_path"])
+                ws_session_state[session_id]["has_image"] = True
+                
+            try:
+                # Notify UI that agent started thinking
+                await websocket.send_json({"type": "status", "status": "Thinking...", "node": "orchestrator"})
+                
+                # Stream the pipeline execution (cyclic ReAct)
+                async for event in pipeline.astream(ws_session_state[session_id], stream_mode="updates"):
+                    for node_name, output in event.items():
+                        
+                        # Forward any agent_status updates immediately
+                        if "agent_status" in output and output["agent_status"]:
+                            await websocket.send_json({
+                                "type": "status",
+                                "status": output["agent_status"],
+                                "node": node_name
+                            })
+                        
+                        # Merge output back into our session state
+                        for key, val in output.items():
+                            if key == "messages" and val:
+                                if isinstance(val, list):
+                                    ws_session_state[session_id]["messages"].extend(val)
+                                    
+                                    # Stream final AI responses to frontend
+                                    for msg in val:
+                                        if getattr(msg, "type", "") == "ai" and not getattr(msg, "tool_calls", []):
+                                            await websocket.send_json({
+                                                "type": "message",
+                                                "content": msg.content
+                                            })
+                            else:
+                                ws_session_state[session_id][key] = val
+                
+                await websocket.send_json({"type": "status", "status": "Waiting for input", "node": "idle"})
+                
+            except Exception as e:
+                logger.error(f"Pipeline error in WS: {e}")
+                await websocket.send_json({"type": "error", "content": str(e)})
+                
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected: {session_id}")
+
+
+# ══════════════════════════════════════════════════════════════
+# Equipment List Endpoint
+# ══════════════════════════════════════════════════════════════
+
+@app.get("/api/equipment/list")
+async def get_equipment_list():
+    """Return list of all tracked equipment for dropdown."""
+    return {
+        "equipment": [
+            {"id": "BF-001", "name": "Blast Furnace 1", "plant": "Jamshedpur", "type": "Blast Furnace", "criticality": "critical"},
+            {"id": "BF-002", "name": "Blast Furnace 2", "plant": "Jamshedpur", "type": "Blast Furnace", "criticality": "critical"},
+            {"id": "RM-001", "name": "Rolling Mill 1", "plant": "Jamshedpur", "type": "Rolling Mill", "criticality": "high"},
+            {"id": "RM-002", "name": "Rolling Mill 2", "plant": "Kalinganagar", "type": "Rolling Mill", "criticality": "high"},
+            {"id": "CC-001", "name": "Continuous Caster 1", "plant": "Jamshedpur", "type": "Continuous Caster", "criticality": "high"},
+            {"id": "HS-001", "name": "Hydraulic System 1", "plant": "Jamshedpur", "type": "Hydraulic System", "criticality": "medium"},
+            {"id": "EAF-001", "name": "Electric Arc Furnace 1", "plant": "Kalinganagar", "type": "Electric Arc Furnace", "criticality": "critical"},
+            {"id": "CV-001", "name": "Conveyor System 1", "plant": "IJmuiden", "type": "Conveyor System", "criticality": "low"},
+            {"id": "CP-001", "name": "Compressor 1", "plant": "Port Talbot", "type": "Compressor", "criticality": "medium"},
+        ]
+    }
+
+
+# ══════════════════════════════════════════════════════════════
+# Live Sensor Data — Dashboard Feed
+# ══════════════════════════════════════════════════════════════
+
+# In-memory state for live simulation
+import random
+import numpy as np
+
+_live_sensor_state = {}
+_alert_history = []
+
+# Normal operating ranges per equipment type
+SENSOR_RANGES = {
+    "Blast Furnace":       {"temp": (1200, 1320), "vib": (0.8, 2.0), "pres": (160, 200), "rpm": (1450, 1550), "cur": (85, 100)},
+    "Rolling Mill":        {"temp": (380, 480),   "vib": (1.2, 2.5), "pres": (180, 220), "rpm": (900, 1100),  "cur": (95, 115)},
+    "Continuous Caster":   {"temp": (1080, 1180), "vib": (0.7, 1.5), "pres": (115, 140), "rpm": (400, 500),   "cur": (78, 90)},
+    "Electric Arc Furnace":{"temp": (1550, 1680), "vib": (1.5, 2.8), "pres": (65, 90),   "rpm": (0, 0),       "cur": (600, 720)},
+    "Hydraulic System":    {"temp": (45, 65),     "vib": (0.5, 1.0), "pres": (225, 260),  "rpm": (1450, 1550), "cur": (38, 50)},
+    "Conveyor System":     {"temp": (35, 55),     "vib": (0.8, 1.8), "pres": (0, 0),      "rpm": (100, 160),   "cur": (15, 25)},
+    "Compressor":          {"temp": (70, 90),     "vib": (1.0, 2.0), "pres": (680, 750),   "rpm": (2950, 3080), "cur": (50, 65)},
+}
+
+EQUIPMENT_FLEET = [
+    {"id": "BF-001", "name": "Blast Furnace 1",       "plant": "Jamshedpur",   "type": "Blast Furnace",        "criticality": "critical", "area": "Blast Furnace"},
+    {"id": "BF-002", "name": "Blast Furnace 2",       "plant": "Jamshedpur",   "type": "Blast Furnace",        "criticality": "critical", "area": "Blast Furnace"},
+    {"id": "RM-001", "name": "Rolling Mill 1",        "plant": "Jamshedpur",   "type": "Rolling Mill",         "criticality": "high",     "area": "Rolling Mill"},
+    {"id": "RM-002", "name": "Rolling Mill 2",        "plant": "Kalinganagar", "type": "Rolling Mill",         "criticality": "high",     "area": "Rolling Mill"},
+    {"id": "CC-001", "name": "Continuous Caster 1",   "plant": "Jamshedpur",   "type": "Continuous Caster",     "criticality": "high",     "area": "Steel Melting Shop"},
+    {"id": "HS-001", "name": "Hydraulic System 1",    "plant": "Jamshedpur",   "type": "Hydraulic System",      "criticality": "medium",   "area": "Rolling Mill"},
+    {"id": "EAF-001","name": "Electric Arc Furnace 1","plant": "Kalinganagar", "type": "Electric Arc Furnace",  "criticality": "critical", "area": "Steel Melting Shop"},
+    {"id": "CV-001", "name": "Conveyor System 1",     "plant": "IJmuiden",     "type": "Conveyor System",       "criticality": "low",      "area": "Raw Materials"},
+    {"id": "CP-001", "name": "Compressor 1",          "plant": "Port Talbot",  "type": "Compressor",            "criticality": "medium",   "area": "Utilities"},
+]
+
+
+def _init_live_state():
+    """Initialize live sensor state from CSV baselines."""
+    global _live_sensor_state
+    if _live_sensor_state:
+        return
+    try:
+        import pandas as pd
+        df = pd.read_csv("src/data/sensor_data.csv")
+        for eq in EQUIPMENT_FLEET:
+            eq_data = df[df["equipment_id"] == eq["id"]]
+            if len(eq_data) > 0:
+                last = eq_data.iloc[-1]
+                _live_sensor_state[eq["id"]] = {
+                    "temperature": float(last.get("sensor_temperature", 0)),
+                    "vibration": float(last.get("sensor_vibration", 0)),
+                    "pressure": float(last.get("sensor_pressure", 0)),
+                    "rpm": float(last.get("sensor_rpm", 0)),
+                    "current": float(last.get("sensor_current", 0)),
+                    "history": {"temperature": [], "vibration": [], "pressure": [], "rpm": [], "current": []},
+                    "rul_days": random.randint(8, 120),
+                }
+            else:
+                ranges = SENSOR_RANGES.get(eq["type"], SENSOR_RANGES["Compressor"])
+                _live_sensor_state[eq["id"]] = {
+                    "temperature": np.mean(ranges["temp"]),
+                    "vibration": np.mean(ranges["vib"]),
+                    "pressure": np.mean(ranges["pres"]),
+                    "rpm": np.mean(ranges["rpm"]),
+                    "current": np.mean(ranges["cur"]),
+                    "history": {"temperature": [], "vibration": [], "pressure": [], "rpm": [], "current": []},
+                    "rul_days": random.randint(15, 120),
+                }
+    except Exception as e:
+        logger.warning(f"Could not init live state from CSV: {e}")
+        for eq in EQUIPMENT_FLEET:
+            ranges = SENSOR_RANGES.get(eq["type"], SENSOR_RANGES["Compressor"])
+            _live_sensor_state[eq["id"]] = {
+                "temperature": np.mean(ranges["temp"]),
+                "vibration": np.mean(ranges["vib"]),
+                "pressure": np.mean(ranges["pres"]),
+                "rpm": np.mean(ranges["rpm"]),
+                "current": np.mean(ranges["cur"]),
+                "history": {"temperature": [], "vibration": [], "pressure": [], "rpm": [], "current": []},
+                "rul_days": random.randint(15, 120),
+            }
+
+
+def _step_sensor(value, low, high, anomaly=False):
+    """Brownian-walk one sensor value within range, with optional anomaly spike."""
+    if anomaly:
+        # Spike outside range
+        overshoot = (high - low) * random.uniform(0.15, 0.4)
+        return round(high + overshoot, 2)
+    drift = (high - low) * random.uniform(-0.02, 0.02)
+    value = value + drift
+    # Soft clamp with slight overshoot allowed
+    value = max(low - (high - low) * 0.05, min(high + (high - low) * 0.05, value))
+    return round(value, 2)
+
+
+def _classify_severity(eq_type, sensors):
+    """Classify equipment health based on sensor thresholds."""
+    ranges = SENSOR_RANGES.get(eq_type, {})
+    violations = []
+    
+    for key, rng_key in [("temperature", "temp"), ("vibration", "vib"), ("pressure", "pres"), ("current", "cur")]:
+        if rng_key not in ranges:
+            continue
+        low, high = ranges[rng_key]
+        val = sensors.get(key, 0)
+        if val == 0 and low == 0 and high == 0:
+            continue
+        if val > high * 1.15 or (low > 0 and val < low * 0.8):
+            violations.append(("CRITICAL", key, val, f"{low}-{high}"))
+        elif val > high * 1.05 or (low > 0 and val < low * 0.9):
+            violations.append(("HIGH", key, val, f"{low}-{high}"))
+        elif val > high or val < low:
+            violations.append(("MEDIUM", key, val, f"{low}-{high}"))
+    
+    if any(v[0] == "CRITICAL" for v in violations):
+        return "CRITICAL", violations
+    elif any(v[0] == "HIGH" for v in violations):
+        return "HIGH", violations
+    elif any(v[0] == "MEDIUM" for v in violations):
+        return "MEDIUM", violations
+    return "NORMAL", []
+
+
+@app.get("/api/live/sensors")
+async def get_live_sensors():
+    """
+    Serve live sensor readings for all equipment.
+    Uses Brownian-walk simulation from real CSV baselines.
+    ~5% chance of anomaly injection per equipment per tick.
+    """
+    _init_live_state()
+    
+    readings = []
+    new_alerts = []
+    ts = datetime.now().isoformat()
+    
+    for eq in EQUIPMENT_FLEET:
+        state = _live_sensor_state.get(eq["id"], {})
+        ranges = SENSOR_RANGES.get(eq["type"], SENSOR_RANGES["Compressor"])
+        
+        # Anomaly injection: ~5% chance
+        has_anomaly = random.random() < 0.05
+        anomaly_sensor = random.choice(["temperature", "vibration", "pressure", "current"]) if has_anomaly else None
+        
+        # Step each sensor
+        for sensor, rng_key in [("temperature", "temp"), ("vibration", "vib"), ("pressure", "pres"), ("rpm", "rpm"), ("current", "cur")]:
+            low, high = ranges[rng_key]
+            is_anomaly = (anomaly_sensor == sensor)
+            state[sensor] = _step_sensor(state.get(sensor, np.mean((low, high))), low, high, anomaly=is_anomaly)
+            # Keep last 60 readings for chart history
+            hist = state.get("history", {}).get(sensor, [])
+            hist.append(state[sensor])
+            if len(hist) > 60:
+                hist = hist[-60:]
+            state.setdefault("history", {})[sensor] = hist
+        
+        # Slowly decay RUL
+        if random.random() < 0.1:
+            state["rul_days"] = max(1, state.get("rul_days", 30) - 1)
+        
+        severity, violations = _classify_severity(eq["type"], state)
+        
+        # Generate alerts for violations
+        for sev, sensor_name, val, normal_range in violations:
+            alert = {
+                "id": f"ALT-{eq['id']}-{sensor_name}-{len(_alert_history)}",
+                "equipment_id": eq["id"],
+                "equipment_name": eq["name"],
+                "area": eq["area"],
+                "plant": eq["plant"],
+                "sensor": sensor_name,
+                "value": val,
+                "normal_range": normal_range,
+                "severity": sev,
+                "timestamp": ts,
+                "message": f"{sensor_name.title()} ({val}) exceeds normal range ({normal_range})"
+            }
+            new_alerts.append(alert)
+        
+        readings.append({
+            "equipment_id": eq["id"],
+            "equipment_name": eq["name"],
+            "equipment_type": eq["type"],
+            "plant": eq["plant"],
+            "area": eq["area"],
+            "criticality": eq["criticality"],
+            "severity": severity,
+            "rul_days": state.get("rul_days", 30),
+            "sensors": {
+                "temperature": state.get("temperature", 0),
+                "vibration": state.get("vibration", 0),
+                "pressure": state.get("pressure", 0),
+                "rpm": state.get("rpm", 0),
+                "current": state.get("current", 0),
+            },
+            "history": state.get("history", {}),
+            "timestamp": ts,
+        })
+    
+    # Append new alerts to history (keep last 200)
+    _alert_history.extend(new_alerts)
+    while len(_alert_history) > 200:
+        _alert_history.pop(0)
+    
+    # Count by severity
+    all_alerts = _alert_history
+    counts = {
+        "critical": sum(1 for a in all_alerts if a["severity"] == "CRITICAL"),
+        "high": sum(1 for a in all_alerts if a["severity"] == "HIGH"),
+        "medium": sum(1 for a in all_alerts if a["severity"] == "MEDIUM"),
+        "total": len(all_alerts),
+    }
+    
+    return {
+        "readings": readings,
+        "alert_counts": counts,
+        "new_alerts": new_alerts,
+        "timestamp": ts,
+    }
+
+
+@app.get("/api/live/alerts")
+async def get_live_alerts(severity: str = None, area: str = None, limit: int = 50):
+    """Get alert history with optional severity/area filters."""
+    alerts = list(reversed(_alert_history))  # newest first
+    if severity:
+        alerts = [a for a in alerts if a["severity"] == severity.upper()]
+    if area:
+        alerts = [a for a in alerts if a["area"] == area]
+    return {"alerts": alerts[:limit], "total": len(_alert_history)}
+
+
+@app.get("/api/equipment/fleet")
+async def get_equipment_fleet():
+    """Get full equipment fleet with latest health status."""
+    _init_live_state()
+    fleet = []
+    for eq in EQUIPMENT_FLEET:
+        state = _live_sensor_state.get(eq["id"], {})
+        severity, _ = _classify_severity(eq["type"], state)
+        fleet.append({
+            **eq,
+            "severity": severity,
+            "rul_days": state.get("rul_days", 30),
+            "sensors": {
+                "temperature": state.get("temperature", 0),
+                "vibration": state.get("vibration", 0),
+                "pressure": state.get("pressure", 0),
+                "rpm": state.get("rpm", 0),
+                "current": state.get("current", 0),
+            }
+        })
+    return {"fleet": fleet}
+
+
+# ══════════════════════════════════════════════════════════════
+# Maintenance Records — History, Team, Faults, Downtime
+# ══════════════════════════════════════════════════════════════
+
+MAINTENANCE_DATA = {
+    "BF-001": {
+        "equipment_id": "BF-001", "equipment_name": "Blast Furnace 1",
+        "equipment_type": "Blast Furnace", "plant": "Jamshedpur", "area": "Blast Furnace",
+        "commissioned_date": "2008-03-15", "age_years": 18,
+        "last_maintenance": "2026-05-28", "next_maintenance_due": "2026-06-28",
+        "maintenance_interval_days": 30, "maintenance_type": "Preventive",
+        "total_maintenance_count": 87,
+        "common_faults": [
+            {"fault": "Tuyere burn-through", "frequency": 12, "severity": "CRITICAL", "avg_downtime_hrs": 48},
+            {"fault": "Refractory lining erosion", "frequency": 8, "severity": "HIGH", "avg_downtime_hrs": 72},
+            {"fault": "Cooling system leak", "frequency": 15, "severity": "MEDIUM", "avg_downtime_hrs": 8},
+            {"fault": "Hot blast stove malfunction", "frequency": 5, "severity": "HIGH", "avg_downtime_hrs": 24},
+            {"fault": "Charging bell jam", "frequency": 9, "severity": "MEDIUM", "avg_downtime_hrs": 6},
+        ],
+        "downtime_history": [
+            {"date": "2026-05-15", "duration_hrs": 12, "reason": "Cooling system leak — pipe replacement", "type": "Corrective"},
+            {"date": "2026-04-22", "duration_hrs": 48, "reason": "Tuyere #7 burn-through — emergency replacement", "type": "Emergency"},
+            {"date": "2026-03-10", "duration_hrs": 4, "reason": "Routine inspection — slag notch cleaning", "type": "Preventive"},
+            {"date": "2026-02-08", "duration_hrs": 8, "reason": "Cooling water pump bearing failure", "type": "Corrective"},
+            {"date": "2026-01-05", "duration_hrs": 72, "reason": "Refractory relining — Zone 3", "type": "Planned Shutdown"},
+            {"date": "2025-11-18", "duration_hrs": 6, "reason": "Gas cleaning system filter blockage", "type": "Corrective"},
+        ],
+        "total_downtime_hrs_ytd": 150,
+        "mtbf_days": 28, "mttr_hrs": 18,
+        "team": {
+            "manager": "Rajesh Kumar Singh", "designation": "Senior Maintenance Engineer",
+            "team_size": 12,
+            "members": [
+                {"name": "Amit Sharma", "role": "Lead Technician", "specialization": "Refractory"},
+                {"name": "Priya Verma", "role": "Instrumentation Engineer", "specialization": "Sensors & PLC"},
+                {"name": "Suresh Patel", "role": "Mechanical Fitter", "specialization": "Hydraulics"},
+                {"name": "Deepak Tiwari", "role": "Electrical Technician", "specialization": "HV Systems"},
+            ],
+            "shift_pattern": "3-shift rotation (8hrs each)",
+            "contact": "+91 98765 43210",
+        },
+    },
+    "BF-002": {
+        "equipment_id": "BF-002", "equipment_name": "Blast Furnace 2",
+        "equipment_type": "Blast Furnace", "plant": "Jamshedpur", "area": "Blast Furnace",
+        "commissioned_date": "2012-07-20", "age_years": 14,
+        "last_maintenance": "2026-06-01", "next_maintenance_due": "2026-07-01",
+        "maintenance_interval_days": 30, "maintenance_type": "Preventive",
+        "total_maintenance_count": 64,
+        "common_faults": [
+            {"fault": "Slag buildup in hearth", "frequency": 10, "severity": "MEDIUM", "avg_downtime_hrs": 12},
+            {"fault": "Tuyere overheating", "frequency": 7, "severity": "HIGH", "avg_downtime_hrs": 36},
+            {"fault": "Burden distribution uneven", "frequency": 6, "severity": "MEDIUM", "avg_downtime_hrs": 4},
+        ],
+        "downtime_history": [
+            {"date": "2026-05-20", "duration_hrs": 6, "reason": "Thermocouple replacement — Zone 5", "type": "Corrective"},
+            {"date": "2026-04-12", "duration_hrs": 36, "reason": "Tuyere #3 overheating — coolant line repair", "type": "Emergency"},
+            {"date": "2026-03-01", "duration_hrs": 4, "reason": "Routine inspection", "type": "Preventive"},
+        ],
+        "total_downtime_hrs_ytd": 82,
+        "mtbf_days": 35, "mttr_hrs": 14,
+        "team": {
+            "manager": "Anand Mishra", "designation": "Maintenance Supervisor",
+            "team_size": 10,
+            "members": [
+                {"name": "Vikram Joshi", "role": "Lead Technician", "specialization": "Furnace Operations"},
+                {"name": "Sunita Devi", "role": "Instrumentation Tech", "specialization": "Temperature Sensors"},
+                {"name": "Ravi Kumar", "role": "Welder", "specialization": "High-temp welding"},
+            ],
+            "shift_pattern": "3-shift rotation (8hrs each)",
+            "contact": "+91 98765 43211",
+        },
+    },
+    "RM-001": {
+        "equipment_id": "RM-001", "equipment_name": "Rolling Mill 1",
+        "equipment_type": "Rolling Mill", "plant": "Jamshedpur", "area": "Rolling Mill",
+        "commissioned_date": "2005-11-10", "age_years": 21,
+        "last_maintenance": "2026-06-05", "next_maintenance_due": "2026-06-19",
+        "maintenance_interval_days": 14, "maintenance_type": "Predictive",
+        "total_maintenance_count": 156,
+        "common_faults": [
+            {"fault": "Roll bearing failure", "frequency": 18, "severity": "CRITICAL", "avg_downtime_hrs": 24},
+            {"fault": "Roll surface crack", "frequency": 11, "severity": "HIGH", "avg_downtime_hrs": 16},
+            {"fault": "Gearbox oil leak", "frequency": 14, "severity": "MEDIUM", "avg_downtime_hrs": 6},
+            {"fault": "Motor overheating", "frequency": 8, "severity": "HIGH", "avg_downtime_hrs": 10},
+            {"fault": "Guide misalignment", "frequency": 20, "severity": "LOW", "avg_downtime_hrs": 2},
+        ],
+        "downtime_history": [
+            {"date": "2026-06-02", "duration_hrs": 24, "reason": "Work roll bearing replacement — Stand 3", "type": "Corrective"},
+            {"date": "2026-05-10", "duration_hrs": 4, "reason": "Roll grinding & cambering", "type": "Preventive"},
+            {"date": "2026-04-18", "duration_hrs": 10, "reason": "Main motor winding overheating", "type": "Emergency"},
+            {"date": "2026-03-25", "duration_hrs": 6, "reason": "Gearbox oil seal replacement", "type": "Corrective"},
+            {"date": "2026-02-15", "duration_hrs": 2, "reason": "Guide alignment check", "type": "Preventive"},
+        ],
+        "total_downtime_hrs_ytd": 98,
+        "mtbf_days": 18, "mttr_hrs": 8,
+        "team": {
+            "manager": "Manoj Kumar Dubey", "designation": "Rolling Mill Maintenance Head",
+            "team_size": 15,
+            "members": [
+                {"name": "Sanjay Yadav", "role": "Lead Mechanic", "specialization": "Roll Bearings"},
+                {"name": "Neha Gupta", "role": "Vibration Analyst", "specialization": "Predictive Maintenance"},
+                {"name": "Ashok Verma", "role": "Electrician", "specialization": "VFD & Motors"},
+                {"name": "Pooja Kumari", "role": "Lubrication Tech", "specialization": "Oil Analysis"},
+            ],
+            "shift_pattern": "2-shift (12hrs each)",
+            "contact": "+91 98765 43212",
+        },
+    },
+    "RM-002": {
+        "equipment_id": "RM-002", "equipment_name": "Rolling Mill 2",
+        "equipment_type": "Rolling Mill", "plant": "Kalinganagar", "area": "Rolling Mill",
+        "commissioned_date": "2015-04-01", "age_years": 11,
+        "last_maintenance": "2026-06-08", "next_maintenance_due": "2026-06-22",
+        "maintenance_interval_days": 14, "maintenance_type": "Predictive",
+        "total_maintenance_count": 82,
+        "common_faults": [
+            {"fault": "Spindle coupling wear", "frequency": 9, "severity": "MEDIUM", "avg_downtime_hrs": 8},
+            {"fault": "Hydraulic AGC failure", "frequency": 5, "severity": "HIGH", "avg_downtime_hrs": 12},
+            {"fault": "Roll chock bearing fatigue", "frequency": 7, "severity": "HIGH", "avg_downtime_hrs": 18},
+        ],
+        "downtime_history": [
+            {"date": "2026-05-30", "duration_hrs": 8, "reason": "Spindle coupling replacement", "type": "Corrective"},
+            {"date": "2026-04-28", "duration_hrs": 4, "reason": "Hydraulic AGC calibration", "type": "Preventive"},
+            {"date": "2026-03-15", "duration_hrs": 18, "reason": "Roll chock bearing swap", "type": "Corrective"},
+        ],
+        "total_downtime_hrs_ytd": 54,
+        "mtbf_days": 25, "mttr_hrs": 10,
+        "team": {
+            "manager": "Prakash Mohapatra", "designation": "Maintenance Engineer",
+            "team_size": 11,
+            "members": [
+                {"name": "Bikash Panda", "role": "Lead Technician", "specialization": "Hydraulics"},
+                {"name": "Sarita Das", "role": "Instrumentation", "specialization": "PLC & SCADA"},
+            ],
+            "shift_pattern": "3-shift rotation",
+            "contact": "+91 98765 43213",
+        },
+    },
+    "CC-001": {
+        "equipment_id": "CC-001", "equipment_name": "Continuous Caster 1",
+        "equipment_type": "Continuous Caster", "plant": "Jamshedpur", "area": "Steel Melting Shop",
+        "commissioned_date": "2010-09-05", "age_years": 16,
+        "last_maintenance": "2026-05-25", "next_maintenance_due": "2026-06-15",
+        "maintenance_interval_days": 21, "maintenance_type": "Condition-Based",
+        "total_maintenance_count": 110,
+        "common_faults": [
+            {"fault": "Mould oscillation failure", "frequency": 6, "severity": "CRITICAL", "avg_downtime_hrs": 36},
+            {"fault": "Segment misalignment", "frequency": 12, "severity": "HIGH", "avg_downtime_hrs": 12},
+            {"fault": "Spray nozzle clogging", "frequency": 22, "severity": "LOW", "avg_downtime_hrs": 2},
+            {"fault": "Breakout warning", "frequency": 3, "severity": "CRITICAL", "avg_downtime_hrs": 48},
+        ],
+        "downtime_history": [
+            {"date": "2026-05-20", "duration_hrs": 12, "reason": "Segment roller bearing replacement", "type": "Corrective"},
+            {"date": "2026-04-15", "duration_hrs": 2, "reason": "Spray nozzle cleaning & replacement", "type": "Preventive"},
+            {"date": "2026-03-08", "duration_hrs": 36, "reason": "Mould oscillation cylinder failure", "type": "Emergency"},
+            {"date": "2026-01-22", "duration_hrs": 48, "reason": "Near-breakout event — full strand inspection", "type": "Emergency"},
+        ],
+        "total_downtime_hrs_ytd": 118,
+        "mtbf_days": 22, "mttr_hrs": 16,
+        "team": {
+            "manager": "Saurabh Chatterjee", "designation": "Caster Maintenance Lead",
+            "team_size": 9,
+            "members": [
+                {"name": "Arjun Ghosh", "role": "Mould Specialist", "specialization": "Oscillation Systems"},
+                {"name": "Kavita Roy", "role": "Strand Technician", "specialization": "Segment Alignment"},
+            ],
+            "shift_pattern": "3-shift rotation",
+            "contact": "+91 98765 43214",
+        },
+    },
+    "HS-001": {
+        "equipment_id": "HS-001", "equipment_name": "Hydraulic System 1",
+        "equipment_type": "Hydraulic System", "plant": "Jamshedpur", "area": "Rolling Mill",
+        "commissioned_date": "2014-02-18", "age_years": 12,
+        "last_maintenance": "2026-06-10", "next_maintenance_due": "2026-07-10",
+        "maintenance_interval_days": 30, "maintenance_type": "Preventive",
+        "total_maintenance_count": 48,
+        "common_faults": [
+            {"fault": "Hydraulic oil contamination", "frequency": 14, "severity": "MEDIUM", "avg_downtime_hrs": 4},
+            {"fault": "Seal/gasket leak", "frequency": 18, "severity": "LOW", "avg_downtime_hrs": 3},
+            {"fault": "Pump cavitation", "frequency": 4, "severity": "HIGH", "avg_downtime_hrs": 16},
+            {"fault": "Accumulator nitrogen loss", "frequency": 6, "severity": "MEDIUM", "avg_downtime_hrs": 4},
+        ],
+        "downtime_history": [
+            {"date": "2026-05-28", "duration_hrs": 3, "reason": "Cylinder seal replacement", "type": "Corrective"},
+            {"date": "2026-04-20", "duration_hrs": 4, "reason": "Oil filtration system flush", "type": "Preventive"},
+            {"date": "2026-03-12", "duration_hrs": 16, "reason": "Main pump cavitation — bearing replaced", "type": "Emergency"},
+        ],
+        "total_downtime_hrs_ytd": 35,
+        "mtbf_days": 40, "mttr_hrs": 6,
+        "team": {
+            "manager": "Ramesh Babu", "designation": "Hydraulics Supervisor",
+            "team_size": 6,
+            "members": [
+                {"name": "Santosh Kumar", "role": "Hydraulics Technician", "specialization": "Pumps & Valves"},
+                {"name": "Meena Devi", "role": "Oil Analysis Tech", "specialization": "Fluid Power"},
+            ],
+            "shift_pattern": "Day shift + on-call",
+            "contact": "+91 98765 43215",
+        },
+    },
+    "EAF-001": {
+        "equipment_id": "EAF-001", "equipment_name": "Electric Arc Furnace 1",
+        "equipment_type": "Electric Arc Furnace", "plant": "Kalinganagar", "area": "Steel Melting Shop",
+        "commissioned_date": "2016-01-12", "age_years": 10,
+        "last_maintenance": "2026-06-03", "next_maintenance_due": "2026-06-17",
+        "maintenance_interval_days": 14, "maintenance_type": "Predictive",
+        "total_maintenance_count": 95,
+        "common_faults": [
+            {"fault": "Electrode breakage", "frequency": 14, "severity": "CRITICAL", "avg_downtime_hrs": 8},
+            {"fault": "Refractory wear (hearth)", "frequency": 6, "severity": "HIGH", "avg_downtime_hrs": 96},
+            {"fault": "Transformer overheating", "frequency": 4, "severity": "CRITICAL", "avg_downtime_hrs": 24},
+            {"fault": "Water-cooled panel leak", "frequency": 10, "severity": "HIGH", "avg_downtime_hrs": 12},
+            {"fault": "EBT slide gate stuck", "frequency": 8, "severity": "MEDIUM", "avg_downtime_hrs": 6},
+        ],
+        "downtime_history": [
+            {"date": "2026-06-01", "duration_hrs": 8, "reason": "Electrode column #2 replaced", "type": "Corrective"},
+            {"date": "2026-05-12", "duration_hrs": 12, "reason": "Water-cooled panel patch welding", "type": "Emergency"},
+            {"date": "2026-04-05", "duration_hrs": 6, "reason": "EBT slide gate cleaning", "type": "Preventive"},
+            {"date": "2026-02-20", "duration_hrs": 96, "reason": "Full hearth reline — planned shutdown", "type": "Planned Shutdown"},
+            {"date": "2026-01-10", "duration_hrs": 24, "reason": "Transformer cooling fan failure", "type": "Emergency"},
+        ],
+        "total_downtime_hrs_ytd": 170,
+        "mtbf_days": 15, "mttr_hrs": 20,
+        "team": {
+            "manager": "Debashis Nayak", "designation": "EAF Maintenance Manager",
+            "team_size": 14,
+            "members": [
+                {"name": "Tapan Sahoo", "role": "Electrode Specialist", "specialization": "Graphite Electrode"},
+                {"name": "Smita Behera", "role": "Electrical Engineer", "specialization": "HV Transformer"},
+                {"name": "Gopal Mohanty", "role": "Refractory Mason", "specialization": "Hearth Lining"},
+                {"name": "Kiran Sethi", "role": "Water Systems Tech", "specialization": "Cooling Circuits"},
+            ],
+            "shift_pattern": "3-shift rotation",
+            "contact": "+91 98765 43216",
+        },
+    },
+    "CV-001": {
+        "equipment_id": "CV-001", "equipment_name": "Conveyor System 1",
+        "equipment_type": "Conveyor System", "plant": "IJmuiden", "area": "Raw Materials",
+        "commissioned_date": "2018-06-25", "age_years": 8,
+        "last_maintenance": "2026-06-09", "next_maintenance_due": "2026-07-09",
+        "maintenance_interval_days": 30, "maintenance_type": "Preventive",
+        "total_maintenance_count": 32,
+        "common_faults": [
+            {"fault": "Belt misalignment/tracking", "frequency": 16, "severity": "LOW", "avg_downtime_hrs": 2},
+            {"fault": "Idler roller seizure", "frequency": 10, "severity": "MEDIUM", "avg_downtime_hrs": 3},
+            {"fault": "Belt splice failure", "frequency": 3, "severity": "HIGH", "avg_downtime_hrs": 18},
+            {"fault": "Drive motor overload", "frequency": 5, "severity": "MEDIUM", "avg_downtime_hrs": 6},
+        ],
+        "downtime_history": [
+            {"date": "2026-05-22", "duration_hrs": 2, "reason": "Belt tracking adjustment", "type": "Preventive"},
+            {"date": "2026-04-10", "duration_hrs": 3, "reason": "Idler roller swap — bay 14", "type": "Corrective"},
+            {"date": "2026-02-28", "duration_hrs": 18, "reason": "Belt splice vulcanization", "type": "Corrective"},
+        ],
+        "total_downtime_hrs_ytd": 28,
+        "mtbf_days": 55, "mttr_hrs": 4,
+        "team": {
+            "manager": "Hans van der Berg", "designation": "Conveyor Maintenance Lead",
+            "team_size": 5,
+            "members": [
+                {"name": "Pieter de Vries", "role": "Belt Technician", "specialization": "Belt Splicing"},
+                {"name": "Johan Bakker", "role": "Mechanic", "specialization": "Drive Systems"},
+            ],
+            "shift_pattern": "Day shift",
+            "contact": "+31 20 555 1234",
+        },
+    },
+    "CP-001": {
+        "equipment_id": "CP-001", "equipment_name": "Compressor 1",
+        "equipment_type": "Compressor", "plant": "Port Talbot", "area": "Utilities",
+        "commissioned_date": "2011-08-30", "age_years": 15,
+        "last_maintenance": "2026-06-06", "next_maintenance_due": "2026-06-20",
+        "maintenance_interval_days": 14, "maintenance_type": "Condition-Based",
+        "total_maintenance_count": 72,
+        "common_faults": [
+            {"fault": "Intake filter clogging", "frequency": 20, "severity": "LOW", "avg_downtime_hrs": 1},
+            {"fault": "Valve plate crack", "frequency": 4, "severity": "CRITICAL", "avg_downtime_hrs": 24},
+            {"fault": "Intercooler fouling", "frequency": 8, "severity": "MEDIUM", "avg_downtime_hrs": 6},
+            {"fault": "Bearing wear/vibration", "frequency": 6, "severity": "HIGH", "avg_downtime_hrs": 12},
+            {"fault": "Oil separator malfunction", "frequency": 5, "severity": "MEDIUM", "avg_downtime_hrs": 4},
+        ],
+        "downtime_history": [
+            {"date": "2026-05-25", "duration_hrs": 1, "reason": "Intake filter replacement", "type": "Preventive"},
+            {"date": "2026-04-30", "duration_hrs": 6, "reason": "Intercooler chemical cleaning", "type": "Preventive"},
+            {"date": "2026-03-18", "duration_hrs": 12, "reason": "Drive-end bearing replacement", "type": "Corrective"},
+            {"date": "2026-02-05", "duration_hrs": 24, "reason": "Valve plate crack — Stage 2 head rebuild", "type": "Emergency"},
+        ],
+        "total_downtime_hrs_ytd": 55,
+        "mtbf_days": 30, "mttr_hrs": 8,
+        "team": {
+            "manager": "David Evans", "designation": "Utilities Maintenance Supervisor",
+            "team_size": 7,
+            "members": [
+                {"name": "Gareth Williams", "role": "Compressor Technician", "specialization": "Reciprocating Compressors"},
+                {"name": "Owen Davies", "role": "Vibration Analyst", "specialization": "Rotating Equipment"},
+            ],
+            "shift_pattern": "Day shift + on-call weekends",
+            "contact": "+44 1639 882 100",
+        },
+    },
+}
+
+@app.get("/api/maintenance/records")
+async def get_maintenance_records(equipment_id: str = None):
+    """Get maintenance history, team, faults, and downtime for equipment."""
+    if equipment_id and equipment_id in MAINTENANCE_DATA:
+        return {"records": [MAINTENANCE_DATA[equipment_id]]}
+    return {"records": list(MAINTENANCE_DATA.values())}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -549,7 +1310,7 @@ async def get_plant_summary():
 
     summary = {
         "plant_name": "Tata Steel — Jamshedpur Works",
-        "system": "SteelMind AI Wizard v1.0",
+        "system": "OmniSense AI Wizard v1.0",
         "generated_at": datetime.now().isoformat(),
         "total_equipment": 9,
         "sensor_data_available": sensor_path.exists(),
@@ -607,7 +1368,7 @@ async def get_plant_summary():
 @app.on_event("startup")
 async def startup_event():
     """Initialize resources on server startup."""
-    logger.info("🏭 SteelMind AI Wizard starting up...")
+    logger.info("🏭 OmniSense AI Wizard starting up...")
     logger.info(f"📂 Upload directory: {UPLOAD_DIR.absolute()}")
     logger.info(f"📂 Reports directory: {REPORTS_DIR.absolute()}")
 
@@ -617,9 +1378,9 @@ async def startup_event():
     if not os.getenv("GOOGLE_API_KEY"):
         logger.warning("⚠️  GOOGLE_API_KEY not set — Vision Agent will fail")
 
-    logger.info("✅ SteelMind AI Wizard ready!")
+    logger.info("✅ OmniSense AI Wizard ready!")
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True)

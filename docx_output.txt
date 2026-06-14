@@ -1,4 +1,4 @@
-SteelMind
+OmniSense
 Maintenance Wizard for Industrial Equipment
 Tata Steel AI Hackathon 2026  —  Round 2: Agentic AI Challenge
 COMPLETE GUIDE — Problem  •  Theory  •  Architecture  •  Agents  •  Dataset  •  Tech Stack
@@ -8,7 +8,7 @@ varshney.dev.013@gmail.com  |  June 2026
 Table of Contents
 1.  Problem Statement — What Tata Steel Wants	3
 2.  Background Theory — Agentic AI Explained from Scratch	4
-3.  What is SteelMind?	6
+3.  What is OmniSense?	6
 4.  System Architecture — The Big Picture	7
 5.  Input Layer — All Accepted Inputs	8
 6.  Output Layer — All Generated Outputs	9
@@ -123,7 +123,7 @@ Human-in-the-loop — pause and ask human for approval at any point
 2.5 What is Agentic AI vs Traditional AI?
 Dimension
 Traditional AI
-Agentic AI (SteelMind)
+Agentic AI (OmniSense)
 Trigger
 Human asks → AI answers
 AI can also self-trigger on sensor alerts
@@ -149,12 +149,12 @@ TTS (Text-to-Speech): Converts written text into spoken audio. Used to speak the
 Anomaly detection means automatically finding data points that are unusual or abnormal. In a steel plant, if vibration sensor suddenly reads 3x its normal value, that is an anomaly. The Isolation Forest algorithm is used — it learns what 'normal' looks like from historical data and flags anything that deviates significantly.
 2.8 What is RUL — Remaining Useful Life?
 RUL is a prediction of how many more days/hours a piece of equipment can safely operate before it fails or needs replacement. It is calculated by analyzing sensor degradation trends over time. Early RUL warning allows planned maintenance instead of emergency breakdown.
-3. What is SteelMind?
-SteelMind is a Multimodal, Voice-First, Multi-Agent AI Maintenance Wizard built specifically for steel manufacturing plants. It is NOT just a chatbot — it is a complete intelligent decision-support platform.
+3. What is OmniSense?
+OmniSense is a Multimodal, Voice-First, Multi-Agent AI Maintenance Wizard built specifically for steel manufacturing plants. It is NOT just a chatbot — it is a complete intelligent decision-support platform.
 One Line Summary
-SteelMind lets a steel plant maintenance engineer photograph a broken machine, speak a question in their own language, and receive an instant expert-level diagnosis with step-by-step repair instructions, risk assessment, and spare parts recommendation — all in seconds.
+OmniSense lets a steel plant maintenance engineer photograph a broken machine, speak a question in their own language, and receive an instant expert-level diagnosis with step-by-step repair instructions, risk assessment, and spare parts recommendation — all in seconds.
 3.1 Real-World Precedent
-Urban Company (Mumbai-based tech company) introduced a voice + camera AI workflow for their field technicians. A plumber or electrician can photograph the issue and speak the problem — the AI diagnoses and gives instructions. SteelMind brings this exact paradigm to industrial-scale steel plant operations. This is not theoretical — it is already proven at consumer scale.
+Urban Company (Mumbai-based tech company) introduced a voice + camera AI workflow for their field technicians. A plumber or electrician can photograph the issue and speak the problem — the AI diagnoses and gives instructions. OmniSense brings this exact paradigm to industrial-scale steel plant operations. This is not theoretical — it is already proven at consumer scale.
 3.2 Core Philosophy
 Engineer-first design — built for people with gloves on, not keyboard users
 Explainable AI — every recommendation traces back to a source document or data point
@@ -163,7 +163,7 @@ Proactive not reactive — predicts failures before they happen
 Continuously improving — learns from every engineer correction
 4. System Architecture — The Big Picture
 ╔══════════════════════════════════════════════════════════════╗
-║              STEELMIND — SYSTEM ARCHITECTURE                ║
+║              OMNISENSE — SYSTEM ARCHITECTURE                ║
 ╠══════════════════════════════════════════════════════════════╣
 ║                                                              ║
 ║  ┌─────────────────────────────────────────────────────┐   ║
@@ -244,7 +244,7 @@ Text input
 Types or pastes error code from machine
 Diagnostic Agent + RAG
 Why All 5 Input Types Matter
-Most teams will build text-only chatbots. SteelMind accepts voice (hands-free for gloved engineers), image (visual diagnosis from photos), CSV (sensor-based anomaly detection), and PDFs (grounded knowledge retrieval). This is the difference between a demo toy and a real industrial tool.
+Most teams will build text-only chatbots. OmniSense accepts voice (hands-free for gloved engineers), image (visual diagnosis from photos), CSV (sensor-based anomaly detection), and PDFs (grounded knowledge retrieval). This is the difference between a demo toy and a real industrial tool.
 6. Output Layer — All Generated Outputs
 #
 Output
@@ -471,7 +471,7 @@ If Risk Scorer outputs CRITICAL → Alert Agent fires immediate notification wit
 A maintenance engineer in a steel plant is working in a 1300°C environment, wearing heat-resistant gloves, surrounded by loud machinery. They CANNOT type on a keyboard or touchscreen. Voice is the only practical interface. This is not a nice-to-have — it is the difference between a system that gets used and one that collects dust.
 9.2 Complete Voice Flow
 STEP 1: Engineer sees abnormal vibration in Rolling Mill bearing
-STEP 2: Opens SteelMind on phone/tablet
+STEP 2: Opens OmniSense on phone/tablet
 STEP 3: Taps mic button — speaks:
         Hindi:   'Is bearing mein bahut zyada awaaz aa rahi hai'
         Odia:    'Ei bearing re bahut noise ashuchi'
@@ -549,7 +549,7 @@ Analyze the provided image and return ONLY valid JSON:
 }
 '''
 11. Multilingual Strategy — 7+ Languages
-Tata Steel employs 76,000+ people across 5 countries. A system that only works in English excludes the majority of actual maintenance workers. SteelMind supports all plant languages — at zero additional implementation cost.
+Tata Steel employs 76,000+ people across 5 countries. A system that only works in English excludes the majority of actual maintenance workers. OmniSense supports all plant languages — at zero additional implementation cost.
 11.1 Tata Steel Plant — Language Map
 Plant
 Country
@@ -964,10 +964,10 @@ CHOSEN
 Evaluated, ruled out
 Considered, not chosen
 Why We Ruled Out OpenClaw
-OpenClaw is excellent for personal assistant bots on messaging platforms. But SteelMind needs precise control over a complex industrial reasoning pipeline with parallel agents, shared state, and conditional routing. LangGraph's graph-based architecture is the correct tool for this use case. OpenClaw's mention in our evaluation also demonstrates awareness of the latest frameworks.
+OpenClaw is excellent for personal assistant bots on messaging platforms. But OmniSense needs precise control over a complex industrial reasoning pipeline with parallel agents, shared state, and conditional routing. LangGraph's graph-based architecture is the correct tool for this use case. OpenClaw's mention in our evaluation also demonstrates awareness of the latest frameworks.
 17. Judging Criteria Mapping
 Judging Criterion
-How SteelMind Addresses It
+How OmniSense Addresses It
 Evidence
 Problem understanding
 All 4 input categories and all 5 output categories from problem statement fully covered
@@ -988,10 +988,10 @@ Business impact
 RUL prediction shifts reactive to proactive maintenance. Multilingual removes language barrier.
 Section 6 + 11
 18. Key Differentiators vs Other 108 Submissions
-Estimated 90%+ of 109 participants will submit a basic text chatbot with RAG over some documents. Here is why SteelMind is different:
+Estimated 90%+ of 109 participants will submit a basic text chatbot with RAG over some documents. Here is why OmniSense is different:
 Feature
 Typical Submission
-SteelMind
+OmniSense
 Input modalities
 Text only
 Voice + Image + Text + CSV + PDF
@@ -1077,5 +1077,5 @@ Scenario 2 — Sensor Anomaly Alert
 Upload sensor CSV showing gradual temperature increase in Blast Furnace over 30 days. System detects anomaly, predicts RUL = 4 days, triggers CRITICAL alert, recommends immediate inspection of cooling stave.
 Scenario 3 — RAG Knowledge Query
 Engineer types: 'What is the hydraulic system seal replacement procedure for Pump P-204?' System retrieves exact SOP from knowledge base, returns step-by-step procedure with torque specs and required tools, cites source document.
-SteelMind — Built to Win  |  Tata Steel AI Hackathon 2026  |  Dev Varshney
+OmniSense — Built to Win  |  Tata Steel AI Hackathon 2026  |  Dev Varshney
 varshney.dev.013@gmail.com  |  github.com/dev200413y  |  linkedin.com/in/varshney-dev-200413y

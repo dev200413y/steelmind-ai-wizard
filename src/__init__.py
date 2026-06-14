@@ -1,1 +1,1 @@
-# SteelMind AI Wizard
+# OmniSense AI Wizard

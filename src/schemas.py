@@ -1,43 +1,49 @@
 """
-SteelMind AI Wizard — All Schemas & Type Definitions
+OmniSense AI Wizard — All Schemas & Type Definitions
 =====================================================
 Central schema definitions for shared LangGraph state.
 All agents MUST import types from this module.
 """
 
-from typing import TypedDict, Optional, List, Dict, Any
+from typing import TypedDict, Optional, List, Dict, Any, Annotated
+from langgraph.graph.message import add_messages
+from langchain_core.messages import BaseMessage
 
 
 # ══════════════════════════════════════════════════════════════
 # Main LangGraph Shared State
 # ══════════════════════════════════════════════════════════════
 
-class SteelMindState(TypedDict):
+class OmniSenseState(TypedDict):
     """
     Shared state passed through all agents in the LangGraph pipeline.
     Every agent reads from and writes to this state.
     """
-    # ── User Input ──────────────────────────────
-    query: str                          # Text or STT-transcribed query
+    # ── Conversation History ─────────────────────
+    messages: Annotated[List[BaseMessage], add_messages]
+    
+    # ── Agent Status (For WebSocket Streaming) ───
+    agent_status: Optional[str]         # e.g., "Analyzing image...", "Querying RAG..."
+    
+    # ── Multimodal/Context Variables ─────────────
     language: str                       # hi|or|bn|en|nl|th|unknown
     has_image: bool
     has_csv: bool
     has_docs: bool
-    image_path: Optional[str]
-    csv_path: Optional[str]
-    doc_paths: Optional[List[str]]
+    image_paths: List[str]              # Allowing multiple uploads during chat
+    csv_paths: List[str]
     equipment_id: Optional[str]         # e.g. "BF-001"
     equipment_type: Optional[str]       # e.g. "Blast Furnace"
     session_id: str
 
-    # ── Agent Outputs ────────────────────────────
+    # ── Agent/Tool Outputs (Stored for Context) ──
     vision_output: Optional[Dict]       # VisionOutput
     rag_context: Optional[List[Dict]]   # List of RAGChunk
     anomaly_result: Optional[Dict]      # AnomalyResult
     diagnosis: Optional[Dict]           # DiagnosisOutput
     risk_level: Optional[str]           # LOW|MEDIUM|HIGH|CRITICAL
     risk_details: Optional[Dict]        # RiskDetails
-    report: Optional[Dict]             # ReportOutput
+    report: Optional[Dict]              # ReportOutput
 
     # ── Control Flags ────────────────────────────
     force_critical: Optional[bool]      # Set by Anomaly Agent

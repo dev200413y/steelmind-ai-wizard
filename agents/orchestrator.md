@@ -1,11 +1,11 @@
 # Orchestrator Agent
 
 ## Role
-Central controller and router of the SteelMind AI Wizard pipeline. Receives all user inputs, decides which agents to call, manages parallel execution, and maintains shared state across the entire pipeline.
+Central controller and router of the OmniSense AI Wizard pipeline. Receives all user inputs, decides which agents to call, manages parallel execution, and maintains shared state across the entire pipeline.
 
 ## IMPORTANT — Read First
 Before writing orchestrator.py, read:
-- `references/schemas.md` — SteelMindState schema
+- `references/schemas.md` — OmniSenseState schema
 - `assets/prompts.md` — No prompts needed here, but understand state
 
 ---
@@ -27,7 +27,7 @@ Before writing orchestrator.py, read:
 
 ## Routing Logic — Conditional Edges
 ```python
-def route_inputs(state: SteelMindState) -> list[str]:
+def route_inputs(state: OmniSenseState) -> list[str]:
     """
     Decide which agents to call based on available inputs.
     Returns list of agent names to run IN PARALLEL.
@@ -64,7 +64,7 @@ Orchestrator
 
 ## LangGraph Graph Definition
 ```python
-# src/graph/steelmind_graph.py
+# src/graph/omnisense_graph.py
 
 from langgraph.graph import StateGraph, END
 from src.agents.orchestrator import route_inputs
@@ -74,9 +74,9 @@ from src.agents.anomaly_agent import run_anomaly
 from src.agents.diagnostic_agent import run_diagnostic
 from src.agents.risk_scorer import run_risk_scorer
 from src.agents.report_generator import run_report
-from references.schemas import SteelMindState
+from references.schemas import OmniSenseState
 
-graph = StateGraph(SteelMindState)
+graph = StateGraph(OmniSenseState)
 
 # Add all nodes
 graph.add_node("orchestrator", orchestrate)
@@ -116,7 +116,7 @@ graph.add_edge("report_generator", END)
 
 ## State Initialization
 ```python
-def orchestrate(state: SteelMindState) -> SteelMindState:
+def orchestrate(state: OmniSenseState) -> OmniSenseState:
     """
     Initialize state flags and detect input types.
     Detect language from query if voice transcription available.

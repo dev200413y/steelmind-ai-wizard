@@ -1,6 +1,6 @@
-# SteelMind AI Wizard - Startup Script
+# OmniSense AI Wizard - Startup Script
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "    Starting SteelMind AI Wizard" -ForegroundColor Cyan
+Write-Host "    Starting OmniSense AI Wizard" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 # Check if data generation is needed

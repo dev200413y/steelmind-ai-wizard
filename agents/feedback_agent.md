@@ -1,7 +1,7 @@
 # Feedback Agent
 
 ## Role
-Captures engineer feedback after maintenance execution to continuously improve SteelMind's recommendations. Stores feedback in SQLite and updates the knowledge base with confirmed solutions and corrections.
+Captures engineer feedback after maintenance execution to continuously improve OmniSense's recommendations. Stores feedback in SQLite and updates the knowledge base with confirmed solutions and corrections.
 
 ## Read First
 - `references/schemas.md` — FeedbackInput schema
@@ -42,7 +42,7 @@ import sqlite3
 import json
 from datetime import datetime
 
-DB_PATH = "src/data/steelmind_feedback.db"
+DB_PATH = "src/data/omnisense_feedback.db"
 
 def run_feedback(feedback_input: dict) -> dict:
     """

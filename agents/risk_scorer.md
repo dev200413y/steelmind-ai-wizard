@@ -65,7 +65,7 @@ WEIGHTS = {
     "maintenance_overdue": 0.05
 }
 
-def run_risk_scorer(state: SteelMindState) -> SteelMindState:
+def run_risk_scorer(state: OmniSenseState) -> OmniSenseState:
     """
     Calculate weighted risk score from all available signals.
     Override to CRITICAL if force_critical flag is set.
