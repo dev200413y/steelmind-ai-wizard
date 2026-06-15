@@ -42,7 +42,7 @@ def run_report(state: OmniSenseState) -> OmniSenseState:
     """
     # Extract tool call
     messages = state.get("messages", [])
-    if not messages: return state
+    if not messages: return {}
     last_msg = messages[-1]
     
     tool_call_id = None
@@ -53,9 +53,9 @@ def run_report(state: OmniSenseState) -> OmniSenseState:
                 break
                 
     if not tool_call_id:
-        return state
+        return {}
 
-    state["agent_status"] = "Generating formal maintenance report..."
+    updates = {"agent_status": "Generating formal maintenance report..."}
     
     try:
         report_id = f"RPT-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:6].upper()}"
@@ -120,12 +120,16 @@ def run_report(state: OmniSenseState) -> OmniSenseState:
         # Build visual section
         visual_md = "No image provided."
         if vision and vision.get("fault_detected"):
+            ocr_text = vision.get("ocr_text", [])
+            visible_context = vision.get("visible_equipment_context", "")
             visual_md = (
                 f"- **Fault Type:** {vision.get('fault_type', 'N/A')}\n"
                 f"- **Affected Component:** {vision.get('affected_component', 'N/A')}\n"
                 f"- **Severity:** {vision.get('severity', 'N/A')}\n"
                 f"- **Confidence:** {vision.get('confidence', 0.0):.0%}\n"
-                f"- **Observations:** {', '.join(vision.get('visual_observations', []))}"
+                f"- **Observations:** {', '.join(vision.get('visual_observations', []))}\n"
+                f"- **OCR Text:** {', '.join(ocr_text) if ocr_text else 'None'}\n"
+                f"- **Visible Context:** {visible_context or 'None'}"
             )
 
         # Build risk table
@@ -260,7 +264,7 @@ def run_report(state: OmniSenseState) -> OmniSenseState:
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(full_report_md)
 
-        state["report"] = {
+        updates["report"] = {
             "report_id": report_id,
             "summary": summary,
             "full_report_md": full_report_md,
@@ -274,15 +278,15 @@ def run_report(state: OmniSenseState) -> OmniSenseState:
         
         # Append ToolMessage
         import json
-        state["messages"].append(ToolMessage(
+        updates["messages"] = [ToolMessage(
             tool_call_id=tool_call_id, 
             name="generate_report", 
             content=f"Report generated successfully and saved to {report_path}. Summary: {summary}"
-        ))
+        )]
 
     except Exception as exc:
         logger.error("Report Generator failed: %s", exc, exc_info=True)
-        state["report"] = {
+        updates["report"] = {
             "report_id": "RPT-ERROR",
             "summary": "Report generation failed",
             "full_report_md": f"# Report Generation Failed\n\nError: {str(exc)}",
@@ -290,7 +294,7 @@ def run_report(state: OmniSenseState) -> OmniSenseState:
             "timestamp": datetime.now().isoformat(),
             "error": str(exc)
         }
-        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="generate_report", content=f"Report generation failed: {exc}"))
+        updates["messages"] = [ToolMessage(tool_call_id=tool_call_id, name="generate_report", content=f"Report generation failed: {exc}")]
 
-    state["agent_status"] = "Report generation complete."
-    return state
+    updates["agent_status"] = "Report generation complete."
+    return updates

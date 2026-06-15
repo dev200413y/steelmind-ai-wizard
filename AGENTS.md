@@ -13,7 +13,7 @@ OmniSense AI Wizard is a **Multimodal Multi-Agent AI Maintenance Decision Suppor
 | Layer | Tool | Version |
 |---|---|---|
 | Agent Framework | LangGraph | 0.2.x |
-| Core LLM | Mistral Small 3.1 via Groq API | latest |
+| Core LLM | Mistral Small 3.1 | latest |
 | Vision LLM | Gemini 1.5 Flash | Google AI |
 | STT | OpenAI Whisper | large-v3 (local) |
 | TTS | gTTS | Python lib |

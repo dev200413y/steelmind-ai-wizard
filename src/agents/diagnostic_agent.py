@@ -10,18 +10,19 @@ import logging
 import os
 import re
 from groq import Groq
+from langchain_openai import ChatOpenAI
 from src.schemas import OmniSenseState
 from langchain_core.messages import ToolMessage
 
 logger = logging.getLogger(__name__)
 
-# Groq model fallback chain — tries in order until one works
-GROQ_MODELS = [
+DEFAULT_GROQ_MODELS = [
     "mistral-small-3.1",
-    "mixtral-8x7b-32768", 
+    "mixtral-8x7b-32768",
     "llama-3.3-70b-versatile",
     "llama3-8b-8192",
 ]
+DEFAULT_MISTRAL_MODEL = "mistral-small-latest"
 
 SYSTEM_PROMPT = """You are OmniSense AI Wizard — an expert industrial maintenance diagnostic system for Tata Steel manufacturing plants.
 
@@ -68,7 +69,7 @@ RULES:
 2. Always include safety precautions for steel plant environment
 3. Cite which knowledge base document supports your diagnosis
 4. If confidence < 0.5, clearly say manual expert inspection needed
-5. Respond in the SAME LANGUAGE as the engineer's query
+5. ALWAYS respond strictly in English, regardless of the input language
 6. Technical part numbers/model names stay in English always
 """
 
@@ -79,10 +80,38 @@ def _get_groq_client():
         raise ValueError("GROQ_API_KEY not set in environment variables.")
     return Groq(api_key=api_key)
 
+
+def _get_mistral_llm() -> ChatOpenAI:
+    """Get Mistral chat client using environment variable."""
+    api_key = os.getenv("MISTRAL_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("MISTRAL_API_KEY not set in environment variables.")
+    return ChatOpenAI(
+        api_key=api_key,
+        base_url="https://api.mistral.ai/v1",
+        model=os.getenv("MISTRAL_CHAT_MODEL", DEFAULT_MISTRAL_MODEL),
+        temperature=0.1,
+    )
+
+
+def _get_diagnostic_models() -> list[str]:
+    """Return the configured diagnostic model fallback list."""
+    configured = os.getenv("DIAGNOSTIC_MODELS", "").strip()
+    if configured:
+        models = [model.strip() for model in configured.split(",") if model.strip()]
+        if models:
+            return models
+
+    single_model = os.getenv("DIAGNOSTIC_MODEL", "").strip()
+    if single_model:
+        return [single_model]
+
+    return DEFAULT_GROQ_MODELS
+
 def _try_groq_models(client, messages):
     """Try Groq models in fallback order."""
     last_error = None
-    for model in GROQ_MODELS:
+    for model in _get_diagnostic_models():
         try:
             response = client.chat.completions.create(
                 model=model,
@@ -97,6 +126,51 @@ def _try_groq_models(client, messages):
             logger.warning(f"Model {model} failed: {e}, trying next...")
             continue
     raise RuntimeError(f"All Groq models failed. Last error: {last_error}")
+
+
+def _try_mistral_model(messages: list[dict]) -> str:
+    """Call Mistral chat as fallback for diagnosis generation."""
+    import time
+    llm = _get_mistral_llm()
+    try:
+        response = llm.invoke(messages)
+    except Exception as e:
+        if "429" in str(e) or "rate" in str(e).lower():
+            logger.info("Rate limit hit in diagnostic, sleeping for 2 seconds and retrying...")
+            time.sleep(2)
+            response = llm.invoke(messages)
+        else:
+            raise
+    
+    if isinstance(response.content, str):
+        return response.content
+    return json.dumps(response.content)
+
+
+def _generate_diagnostic_response(messages: list[dict]) -> str:
+    """Try Groq first, then fall back to Mistral chat."""
+    last_error = None
+
+    groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if groq_api_key:
+        try:
+            client = _get_groq_client()
+            return _try_groq_models(client, messages)
+        except Exception as exc:
+            last_error = exc
+            logger.warning("Diagnostic Groq provider failed: %s", exc)
+
+    mistral_api_key = os.getenv("MISTRAL_API_KEY", "").strip()
+    if mistral_api_key:
+        try:
+            return _try_mistral_model(messages)
+        except Exception as exc:
+            last_error = exc
+            logger.warning("Diagnostic Mistral provider failed: %s", exc)
+
+    if last_error:
+        raise RuntimeError(f"All diagnostic providers failed. Last error: {last_error}")
+    raise RuntimeError("No valid diagnostic provider configured. Set GROQ_API_KEY or MISTRAL_API_KEY.")
 
 def build_diagnostic_context(state: OmniSenseState) -> str:
     """
@@ -258,7 +332,7 @@ def run_diagnostic(state: OmniSenseState) -> OmniSenseState:
     """
     # Extract tool call
     messages = state.get("messages", [])
-    if not messages: return state
+    if not messages: return {}
     last_msg = messages[-1]
     
     tool_call_id = None
@@ -269,12 +343,11 @@ def run_diagnostic(state: OmniSenseState) -> OmniSenseState:
                 break
                 
     if not tool_call_id:
-        return state
+        return {}
 
-    state["agent_status"] = "Synthesizing findings for root cause analysis..."
+    updates = {"agent_status": "Synthesizing findings for root cause analysis..."}
 
     try:
-        client = _get_groq_client()
         language = state.get("language", "en")
         context = build_diagnostic_context(state)
         
@@ -285,10 +358,10 @@ def run_diagnostic(state: OmniSenseState) -> OmniSenseState:
             {"role": "user", "content": context}
         ]
 
-        response_text = _try_groq_models(client, messages)
+        response_text = _generate_diagnostic_response(messages)
         diagnosis = _parse_response(response_text)
         diagnosis = _normalize(diagnosis, language)
-        state["diagnosis"] = diagnosis
+        updates["diagnosis"] = diagnosis
         
         # Append ToolMessage
         tool_msg = ToolMessage(
@@ -296,7 +369,7 @@ def run_diagnostic(state: OmniSenseState) -> OmniSenseState:
             name="run_diagnostic",
             content=f"Diagnosis Complete: {json.dumps(diagnosis)}"
         )
-        state["messages"].append(tool_msg)
+        updates["messages"] = [tool_msg]
 
         logger.info(
             "Diagnosis complete — fault='%s' confidence=%.2f shutdown_required=%s",
@@ -307,7 +380,7 @@ def run_diagnostic(state: OmniSenseState) -> OmniSenseState:
 
     except Exception as exc:
         logger.error("Diagnostic Agent failed: %s", exc, exc_info=True)
-        state["diagnosis"] = {
+        updates["diagnosis"] = {
             "fault_identified": "Diagnosis failed — manual inspection required",
             "root_cause": f"System error: {str(exc)}",
             "confidence": 0.0,
@@ -323,7 +396,7 @@ def run_diagnostic(state: OmniSenseState) -> OmniSenseState:
             "language": state.get("language", "en"),
             "error": str(exc),
         }
-        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_diagnostic", content=f"Diagnostic Agent failed: {exc}"))
+        updates["messages"] = [ToolMessage(tool_call_id=tool_call_id, name="run_diagnostic", content=f"Diagnostic Agent failed: {exc}")]
         
-    state["agent_status"] = "Diagnosis ready."
-    return state
+    updates["agent_status"] = "Diagnosis ready."
+    return updates

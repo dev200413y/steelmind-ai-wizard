@@ -26,12 +26,14 @@ class OmniSenseState(TypedDict):
     agent_status: Optional[str]         # e.g., "Analyzing image...", "Querying RAG..."
     
     # ── Multimodal/Context Variables ─────────────
+    query: str                          # latest engineer query
     language: str                       # hi|or|bn|en|nl|th|unknown
     has_image: bool
     has_csv: bool
     has_docs: bool
     image_paths: List[str]              # Allowing multiple uploads during chat
     csv_paths: List[str]
+    doc_paths: List[str]
     equipment_id: Optional[str]         # e.g. "BF-001"
     equipment_type: Optional[str]       # e.g. "Blast Furnace"
     session_id: str
@@ -132,7 +134,8 @@ class ReportOutput(TypedDict):
     """Output from Report Generator Agent."""
     summary: str                 # 2-3 line executive summary
     full_report_md: str          # Complete markdown report
-    pdf_path: str                # Path to PDF file
+    pdf_path: Optional[str]      # Path to PDF file
+    report_path: Optional[str]   # Path to markdown report
     report_id: str               # RPT-YYYYMMDD-NNNN
     timestamp: str
     sections: Dict[str, str]     # Named report sections

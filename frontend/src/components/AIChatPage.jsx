@@ -1,6 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
+import html2pdf from 'html2pdf.js';
 import ReactMarkdown from 'react-markdown';
-import { runQuery, submitFeedback } from '../api';
+import remarkGfm from 'remark-gfm';
+import { createWorker } from 'tesseract.js';
+import { runQuery, submitFeedback, createTicket } from '../api';
+import VoiceAgentExperience from './VoiceAgentExperience';
 
 const API = 'http://localhost:8000';
 
@@ -42,7 +46,7 @@ function detectLanguage(text) {
   if (/[\u0980-\u09FF]/.test(text)) return 'bn';
   if (/[\u0B00-\u0B7F]/.test(text)) return 'or';
   if (/[\u0E00-\u0E7F]/.test(text)) return 'th';
-  if (/\b(de|het|een|van|en|in|dat|die|niet)\b/i.test(text)) return 'nl';
+  if (/\b(het|een|dat|die|niet)\b/i.test(text)) return 'nl';
   return 'en';
 }
 
@@ -56,6 +60,7 @@ const SUGGESTIONS = [
 export default function AIChatPage() {
   // Chat messages: { role: 'user'|'assistant'|'system', content: ..., data: ..., timestamp }
   const [chatMode, setChatMode] = useState('text'); // 'text' | 'voice'
+  const [sessionId] = useState(() => crypto.randomUUID().replace(/-/g, '').slice(0, 12));
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [detectedLang, setDetectedLang] = useState('en');
@@ -63,6 +68,8 @@ export default function AIChatPage() {
   const [equipmentType, setEquipmentType] = useState('');
   const [image, setImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [imageOcrText, setImageOcrText] = useState('');
+  const [ocrStatus, setOcrStatus] = useState('');
   const [csv, setCsv] = useState(null);
   const [pdf, setPdf] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -72,10 +79,12 @@ export default function AIChatPage() {
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showEquipSelect, setShowEquipSelect] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(true);
 
   const imgRef = useRef(null);
   const csvRef = useRef(null);
   const pdfRef = useRef(null);
+  const ocrWorkerRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const chatEndRef = useRef(null);
@@ -88,6 +97,15 @@ export default function AIChatPage() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  useEffect(() => {
+    return () => {
+      if (ocrWorkerRef.current) {
+        ocrWorkerRef.current.terminate?.();
+        ocrWorkerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleEquipmentSelect = (eqId) => {
     const eq = EQUIPMENT_LIST.find(e => e.id === eqId);
@@ -104,6 +122,22 @@ export default function AIChatPage() {
     reader.onloadend = () => setImagePreview(reader.result);
     reader.readAsDataURL(file);
     setShowAttachMenu(false);
+    setImageOcrText('');
+    setOcrStatus('Reading image text...');
+    runImageOcr(file).catch(() => setOcrStatus('OCR unavailable'));
+  };
+
+  const runImageOcr = async (file) => {
+    if (!file) return '';
+    if (!ocrWorkerRef.current) {
+      const worker = await createWorker('eng');
+      ocrWorkerRef.current = worker;
+    }
+    const result = await ocrWorkerRef.current.recognize(file);
+    const text = (result?.data?.text || '').trim();
+    setImageOcrText(text);
+    setOcrStatus(text ? 'Image text captured' : 'No readable text found');
+    return text;
   };
 
   const silenceTimerRef = useRef(null);
@@ -206,8 +240,14 @@ export default function AIChatPage() {
     ];
 
     try {
+      const combinedText = [
+        'Analyze the provided data for maintenance diagnosis.',
+        imageOcrText ? `Extracted image text: ${imageOcrText}` : '',
+      ].filter(Boolean).join('\n\n');
       const fd = new FormData();
+      fd.append('query', combinedText);
       fd.append('audio', audioBlob, 'recording.webm');
+      fd.append('session_id', sessionId);
       if (equipmentId) fd.append('equipment_id', equipmentId);
       if (equipmentType) fd.append('equipment_type', equipmentType);
       if (image) fd.append('image', image);
@@ -277,6 +317,11 @@ export default function AIChatPage() {
     if (!text && !image && !csv) return;
     if (loading) return;
 
+    const combinedText = [
+      text || 'Analyze attached files',
+      imageOcrText ? `Extracted image text: ${imageOcrText}` : '',
+    ].filter(Boolean).join('\n\n');
+
     // Add user message
     const userMsg = {
       role: 'user',
@@ -304,12 +349,14 @@ export default function AIChatPage() {
       setTimeout(() => setActiveAgent('report'), 7000),
     ];
 
+
     try {
       const fd = new FormData();
-      fd.append('query', text || 'Analyze the provided data for maintenance diagnosis.');
+      fd.append('query', combinedText || 'Analyze the provided data for maintenance diagnosis.');
+      fd.append('session_id', sessionId);
       if (equipmentId) fd.append('equipment_id', equipmentId);
       if (equipmentType) fd.append('equipment_type', equipmentType);
-      fd.append('language', detectedLang);
+      fd.append('language', 'en'); // Force English per user request
       if (image) fd.append('image', image);
       if (csv) fd.append('csv_file', csv);
       if (pdf) fd.append('documents', pdf);
@@ -347,11 +394,39 @@ export default function AIChatPage() {
     }
   };
 
-  const handleFeedback = async (result, status) => {
+  const handleFeedback = async (result, status, actualFault = '') => {
     if (!result?.session_id) return;
     try {
-      await submitFeedback({ report_id: result.session_id, diagnosis_correct: status === 'RESOLVED', outcome: status, downtime_hours: 0, equipment_id: equipmentId || '' });
+      await submitFeedback({ report_id: result.session_id, diagnosis_correct: status === 'RESOLVED', outcome: status, downtime_hours: 0, equipment_id: equipmentId || '', actual_fault: actualFault });
     } catch {}
+  };
+
+  const handleCreateTicket = async (result) => {
+    const diagnosis = result?.diagnosis || {};
+    const title = diagnosis.fault_identified || 'Maintenance issue';
+    
+    // Bundle the entire chat conversation so context is not lost!
+    const conversation = messages.map(m => {
+      const role = m.role === 'user' ? 'ENGINEER' : 'AI WIZARD';
+      const content = typeof m.content === 'object' ? (m.content.report?.summary || m.content.chat_response || 'Structured Report/Diagnosis') : m.content;
+      return `[${role}]: ${content}`;
+    }).join('\n\n');
+
+    const description = `=== TICKET DETAILS ===\nRoot Cause: ${diagnosis.root_cause || 'Unknown'}\n\n=== CONVERSATION HISTORY ===\n${conversation}\n\n*Note: Ticket automatically includes chat history to preserve context.*`;
+
+    try {
+      await createTicket({
+        title,
+        description,
+        severity: result?.risk_level || 'MEDIUM',
+        equipment_id: result?.session_id || '',
+        session_id: result?.session_id || '',
+        created_by: 'engineer',
+      });
+      alert("Ticket raised successfully! It includes the full chat history.");
+    } catch (e) {
+      alert("Failed to raise ticket.");
+    }
   };
 
   const selectedEquip = EQUIPMENT_LIST.find(e => e.id === equipmentId);
@@ -378,7 +453,15 @@ export default function AIChatPage() {
       </div>
 
       {chatMode === 'voice' ? (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', paddingBottom: '100px' }}>
+        <>
+        <div className="chat-voice-shell">
+          <VoiceAgentExperience
+            equipmentId={equipmentId}
+            equipmentType={equipmentType}
+            selectedEquip={selectedEquip}
+          />
+        </div>
+        <div style={{ display: 'none' }}>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '256px', height: '256px', borderRadius: '50%', transition: 'all 0.5s', background: isRecording ? 'rgba(239, 68, 68, 0.15)' : audioPlaying ? 'rgba(16, 185, 129, 0.15)' : 'transparent', transform: isRecording ? 'scale(1.1)' : audioPlaying ? 'scale(1.05)' : 'scale(1)' }}>
               <button 
                 style={{ width: '128px', height: '128px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px', transition: 'all 0.3s', zIndex: 10, cursor: 'pointer', border: 'none', background: isRecording ? '#ef4444' : audioPlaying ? '#10b981' : '#2b2d35', color: isRecording || audioPlaying ? 'white' : '#d1d5db', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)' }}
@@ -403,6 +486,7 @@ export default function AIChatPage() {
               </div>
             )}
         </div>
+        </>
       ) : (
         <>
       {/* Chat Messages Area */}
@@ -439,7 +523,7 @@ export default function AIChatPage() {
           <div className="chat-messages-list">
             {messages.map((msg, i) => (
               <div key={i} className={`chat-msg ${msg.role}`}>
-                {msg.role === 'user' ? <UserMessage msg={msg} /> : <AssistantMessage msg={msg} onFeedback={handleFeedback} onPlayTTS={playTTS} audioPlaying={audioPlaying} />}
+                {msg.role === 'user' ? <UserMessage msg={msg} /> : <AssistantMessage msg={msg} onFeedback={handleFeedback} onCreateTicket={handleCreateTicket} onPlayTTS={playTTS} audioPlaying={audioPlaying} onSend={handleSend} />}
               </div>
             ))}
 
@@ -542,7 +626,7 @@ export default function AIChatPage() {
           </button>
 
           {/* Send button */}
-          <button className="chat-send-btn" onClick={() => handleSend()} disabled={loading || (!inputText && !image && !csv)} title="Send">
+          <button className="chat-send-btn" onClick={() => handleSend()} disabled={loading || (!inputText && !image && !csv && !pdf)} title="Send">
             {loading ? (
               <div className="spinner" style={{ width: 16, height: 16 }}></div>
             ) : (
@@ -590,8 +674,24 @@ function UserMessage({ msg }) {
 }
 
 /* ═══ Assistant Message Bubble ═══ */
-function AssistantMessage({ msg, onFeedback, onPlayTTS, audioPlaying }) {
+function AssistantMessage({ msg, onFeedback, onCreateTicket, onPlayTTS, audioPlaying, onSend }) {
+  const [feedbackState, setFeedbackState] = useState(null);
+  const [issueText, setIssueText] = useState('');
   const data = msg.content;
+  
+  const handleFeedbackSubmit = async (isResolved) => {
+    if (isResolved) {
+      // Just logbook
+      onFeedback(data, 'RESOLVED', issueText);
+    } else {
+      // Raise ticket and logbook
+      const ticketData = { ...data, actual_fault_notes: issueText };
+      onCreateTicket(ticketData);
+      onFeedback(data, 'ESCALATED', issueText);
+    }
+    setFeedbackState('SUBMITTED');
+  };
+
   if (data?.error) {
     return (
       <>
@@ -620,8 +720,18 @@ function AssistantMessage({ msg, onFeedback, onPlayTTS, audioPlaying }) {
       <div className="chat-msg-body">
         {/* Render casual chat response if no formal diagnosis exists */}
         {!diagnosis && !report && data?.chat_response ? (
-          <div className="chat-ai-casual-msg" style={{ padding: '8px 4px', fontSize: '15px', color: '#e5e7eb', lineHeight: '1.6' }}>
-            <ReactMarkdown>{data.chat_response}</ReactMarkdown>
+          <div className="chat-ai-casual-msg markdown-body" style={{ padding: '8px 4px', fontSize: '15px', color: '#e5e7eb', lineHeight: '1.6' }}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.chat_response}</ReactMarkdown>
+            {data.chat_response && data.chat_response.toLowerCase().includes('generate') && (
+              <div style={{ marginTop: '12px', display: 'flex', gap: '8px' }}>
+                <button 
+                  onClick={() => onSend && onSend('Yes, please generate the report.')}
+                  style={{ background: '#3b82f6', color: '#fff', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+                >
+                  📋 Generate Report
+                </button>
+              </div>
+            )}
             <div className="chat-msg-time" style={{ marginTop: '8px', fontSize: '11px', color: '#6b7280' }}>{msg.timestamp}</div>
           </div>
         ) : (
@@ -732,18 +842,86 @@ function AssistantMessage({ msg, onFeedback, onPlayTTS, audioPlaying }) {
         {report?.full_report_md && (
           <details className="chat-ai-report-details">
             <summary className="chat-ai-report-summary">📋 Full Maintenance Report <span className="chat-ai-report-expand">Click to expand</span></summary>
-            <div className="chat-ai-report-body markdown-body">
-              <ReactMarkdown>{report.full_report_md}</ReactMarkdown>
+            <div id={`report-body-${msg.timestamp.replace(/\W/g, '')}`} className="chat-ai-report-body markdown-body">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.full_report_md}</ReactMarkdown>
             </div>
           </details>
         )}
 
-        {/* Feedback */}
-        <div className="chat-ai-feedback">
-          <span>Was this helpful?</span>
-          <button className="chat-fb-btn resolve" onClick={() => onFeedback(data, 'RESOLVED')}>✓ Resolved</button>
-          <button className="chat-fb-btn escalate" onClick={() => onFeedback(data, 'ESCALATED')}>⚠ Escalate</button>
+        {/* Actions Bar & Feedback */}
+        <div className="chat-ai-actions-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', borderTop: '1px solid #2b2d35', paddingTop: '12px', flexWrap: 'wrap', gap: '10px' }}>
+          <div className="chat-ai-feedback-thumbs" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '12px', color: '#9ca3af', marginRight: '8px' }}>Was this helpful?</span>
+            
+            {feedbackState === 'SUBMITTED' ? (
+              <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 'bold' }}>✓ Feedback Saved</span>
+            ) : (
+              <>
+                <button onClick={() => { onFeedback(data, 'RESOLVED'); setFeedbackState('SUBMITTED'); }} style={{ padding: '4px 12px', borderRadius: '16px', fontSize: '12px', fontWeight: '600', color: '#22c55e', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  👍 Yes
+                </button>
+                <button onClick={() => setFeedbackState('PARTIALLY')} style={{ padding: '4px 12px', borderRadius: '16px', fontSize: '12px', fontWeight: '600', color: '#eab308', background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  📝 Partially
+                </button>
+                <button onClick={() => setFeedbackState('INCORRECT')} style={{ padding: '4px 12px', borderRadius: '16px', fontSize: '12px', fontWeight: '600', color: '#ef4444', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  👎 Incorrect
+                </button>
+              </>
+            )}
+          </div>
+          <div className="chat-ai-tools" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button className="chat-fb-btn" onClick={() => onCreateTicket(data)} style={{ padding: '6px 12px', background: '#3b82f6', color: 'white', borderRadius: '4px', border: 'none', cursor: 'pointer', fontSize: '12px' }}>🎫 Raise Ticket</button>
+            <button className="chat-action-icon" style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '16px', padding: '4px', opacity: 0.7 }} onClick={() => {
+              const textToDownload = report?.full_report_md || data?.chat_response || JSON.stringify(diagnosis, null, 2);
+              const element = document.getElementById(`report-body-${msg.timestamp.replace(/\W/g, '')}`);
+              if (element && window.confirm('Download as PDF? (Cancel to download as Markdown)')) {
+                const clone = element.cloneNode(true);
+                clone.style.background = '#ffffff';
+                clone.style.color = '#000000';
+                clone.style.padding = '20px';
+                const opt = {
+                  margin: 0.5,
+                  filename: `${report?.report_id || 'report'}.pdf`,
+                  image: { type: 'jpeg', quality: 0.98 },
+                  html2canvas: { scale: 2, backgroundColor: '#ffffff' },
+                  jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+                };
+                html2pdf().set(opt).from(clone).save();
+              } else {
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(new Blob([textToDownload], {type: 'text/markdown'}));
+                a.download = `${report?.report_id || 'response'}.md`;
+                a.click();
+              }
+            }} title="Download PDF / MD">⬇️</button>
+          </div>
         </div>
+
+        {/* Detailed Feedback Input Form */}
+        {(feedbackState === 'PARTIALLY' || feedbackState === 'INCORRECT') && (
+          <div style={{ marginTop: '16px', padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: '#f8fafc' }}>
+              What was the actual issue?
+            </div>
+            <textarea 
+              value={issueText}
+              onChange={(e) => setIssueText(e.target.value)}
+              placeholder="Describe the real problem here..."
+              style={{ width: '100%', height: '60px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', padding: '8px', color: 'white', fontSize: '13px', marginBottom: '12px', resize: 'vertical', outline: 'none' }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', color: '#9ca3af' }}>Did it resolve now?</span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => handleFeedbackSubmit(true)} style={{ padding: '6px 12px', background: '#10b981', color: 'white', borderRadius: '4px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>
+                  ✓ Resolved (Logbook)
+                </button>
+                <button onClick={() => handleFeedbackSubmit(false)} style={{ padding: '6px 12px', background: '#f97316', color: 'white', borderRadius: '4px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>
+                  🎫 Not Resolved (Raise Ticket)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="chat-msg-time">{msg.timestamp}</div>
           </>

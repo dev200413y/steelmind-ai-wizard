@@ -51,7 +51,7 @@ def run_risk_scorer(state: OmniSenseState) -> OmniSenseState:
     """Calculate weighted risk score from all available signals."""
     # Extract tool call
     messages = state.get("messages", [])
-    if not messages: return state
+    if not messages: return {}
     last_msg = messages[-1]
     
     tool_call_id = None
@@ -62,15 +62,15 @@ def run_risk_scorer(state: OmniSenseState) -> OmniSenseState:
                 break
                 
     if not tool_call_id:
-        return state
+        return {}
 
-    state["agent_status"] = "Evaluating operational risk..."
+    updates = {"agent_status": "Evaluating operational risk..."}
     
     # Immediate override
     if state.get("force_critical"):
         logger.warning("   Forcing CRITICAL risk level due to anomaly alert")
-        state["risk_level"] = "CRITICAL"
-        state["risk_details"] = {
+        updates["risk_level"] = "CRITICAL"
+        updates["risk_details"] = {
             "final_risk": "CRITICAL", 
             "forced_by": "anomaly_alert",
             "urgency_hours": 2,
@@ -78,9 +78,9 @@ def run_risk_scorer(state: OmniSenseState) -> OmniSenseState:
         }
         
         import json
-        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_risk_scorer", content=f"Risk Score: {json.dumps(state['risk_details'])}"))
-        state["agent_status"] = "Risk evaluation complete."
-        return state
+        updates["messages"] = [ToolMessage(tool_call_id=tool_call_id, name="run_risk_scorer", content=f"Risk Score: {json.dumps(updates['risk_details'])}")]
+        updates["agent_status"] = "Risk evaluation complete."
+        return updates
     
     try:
         factors = {}
@@ -122,8 +122,8 @@ def run_risk_scorer(state: OmniSenseState) -> OmniSenseState:
             risk_level = "LOW"
             urgency_hours = 168  # 1 week
             
-        state["risk_level"] = risk_level
-        state["risk_details"] = {
+        updates["risk_level"] = risk_level
+        updates["risk_details"] = {
             "final_risk": risk_level,
             "risk_score": round(final_score, 3),
             "factors": {k: round(v, 3) for k, v in factors.items()},
@@ -133,15 +133,15 @@ def run_risk_scorer(state: OmniSenseState) -> OmniSenseState:
         }
         
         import json
-        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_risk_scorer", content=f"Risk Score: {json.dumps(state['risk_details'])}"))
+        updates["messages"] = [ToolMessage(tool_call_id=tool_call_id, name="run_risk_scorer", content=f"Risk Score: {json.dumps(updates['risk_details'])}")]
         
         logger.info(f"   Risk scoring complete. Final Risk: {risk_level} (Score: {final_score:.3f})")
         
     except Exception as e:
         logger.error(f"❌ Risk Scorer failed: {str(e)}")
-        state["risk_level"] = "MEDIUM" # Fallback
-        state["risk_details"] = {"final_risk": "MEDIUM", "error": str(e)}
-        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_risk_scorer", content=f"Risk Scorer failed: {e}"))
+        updates["risk_level"] = "MEDIUM" # Fallback
+        updates["risk_details"] = {"final_risk": "MEDIUM", "error": str(e)}
+        updates["messages"] = [ToolMessage(tool_call_id=tool_call_id, name="run_risk_scorer", content=f"Risk Scorer failed: {e}")]
         
-    state["agent_status"] = "Risk evaluation complete."
-    return state
+    updates["agent_status"] = "Risk evaluation complete."
+    return updates

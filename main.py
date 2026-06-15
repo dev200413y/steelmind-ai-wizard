@@ -1,15 +1,15 @@
 """
-OmniSense AI Wizard — FastAPI Backend
+OmniSense AI Wizard â€” FastAPI Backend
 ======================================
 Main entry point for the OmniSense REST API.
 
 Endpoints:
-    POST /diagnose  — Text + optional image/CSV/PDF upload
-    POST /voice     — Audio file upload (Whisper → pipeline)
-    POST /feedback  — Engineer feedback submission
-    GET  /health    — Health check
-    GET  /history   — Get session history
-    GET  /equipment — List available equipment
+    POST /diagnose  â€” Text + optional image/CSV/PDF upload
+    POST /voice     â€” Audio file upload (Whisper â†’ pipeline)
+    POST /feedback  â€” Engineer feedback submission
+    GET  /health    â€” Health check
+    GET  /history   â€” Get session history
+    GET  /equipment â€” List available equipment
 
 Run:
     uvicorn main:app --reload --port 8000
@@ -21,6 +21,7 @@ import shutil
 import logging
 import asyncio
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -30,9 +31,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
+import requests
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 # Configure logging
 logging.basicConfig(
@@ -41,9 +43,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("omnisense")
 
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # App Initialization
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 app = FastAPI(
     title="OmniSense AI Wizard",
@@ -77,11 +79,42 @@ REPORTS_DIR.mkdir(exist_ok=True)
 
 # Session history storage (in-memory for demo, SQLite for production)
 session_history: dict = {}
+tickets_store: list[dict] = []
 
 
-# ══════════════════════════════════════════════════════════════
+def _search_web_references(query: str, limit: int = 3) -> list[dict]:
+    """Fetch lightweight web references for a query using DuckDuckGo HTML results."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    try:
+        response = requests.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": q},
+            timeout=8,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        response.raise_for_status()
+        html = response.text
+        titles = re.findall(r'nofollow" class="result__a"[^>]*>(.*?)</a>', html)
+        snippets = re.findall(r'class="result__snippet"[^>]*>(.*?)</a>', html)
+        links = re.findall(r'nofollow" class="result__a" href="(.*?)"', html)
+        refs = []
+        for index in range(min(limit, len(titles), len(links))):
+            refs.append({
+                "title": re.sub(r"<.*?>", "", titles[index]),
+                "snippet": re.sub(r"<.*?>", "", snippets[index]) if index < len(snippets) else "",
+                "url": links[index],
+            })
+        return refs
+    except Exception as exc:
+        logger.warning("Web reference search failed: %s", exc)
+        return []
+
+
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Helper Functions
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def save_upload(file: UploadFile, subfolder: str) -> str:
     """
@@ -104,13 +137,9 @@ async def save_upload(file: UploadFile, subfolder: str) -> str:
         content = await file.read()
         f.write(content)
 
-    logger.info(f"📁 Saved upload: {filepath}")
+    logger.info(f"ðŸ“ Saved upload: {filepath}")
     return str(filepath.absolute())
 
-
-# ══════════════════════════════════════════════════════════════
-# API Endpoints
-# ══════════════════════════════════════════════════════════════
 
 @app.get("/health")
 async def health_check():
@@ -138,17 +167,53 @@ async def list_equipment():
     }
 
 
+@app.get("/predictions")
+async def get_predictions():
+    """Return risk and RUL predictions for all equipment."""
+    from src.schemas import EQUIPMENT_IDS
+    import random
+    
+    # In a full production system, this would query the RUL model for each equipment.
+    # For now, we simulate predictions based on random distribution to feed the Risk Page.
+    predictions = []
+    for eq_id in EQUIPMENT_IDS:
+        rul = random.randint(2, 60)
+        if rul < 7:
+            risk = "CRITICAL"
+        elif rul < 14:
+            risk = "HIGH"
+        elif rul < 30:
+            risk = "MEDIUM"
+        else:
+            risk = "LOW"
+            
+        predictions.append({
+            "equipment_id": eq_id,
+            "rul_days": rul,
+            "risk_level": risk,
+            "last_updated": datetime.now().isoformat()
+        })
+        
+    # Sort by risk (CRITICAL first, i.e. lowest RUL)
+    predictions.sort(key=lambda x: x["rul_days"])
+        
+    return {"predictions": predictions}
+
+
 @app.post("/diagnose")
 async def diagnose(
     query: str = Form(...),
+    session_id: Optional[str] = Form(None),
     equipment_id: Optional[str] = Form(None),
     equipment_type: Optional[str] = Form(None),
+    language: str = Form("en"),
+    web_search: bool = Form(False),
     image: Optional[UploadFile] = File(None),
     csv_file: Optional[UploadFile] = File(None),
     documents: Optional[list[UploadFile]] = File(None),
 ):
     """
-    Main diagnosis endpoint — accepts text query + optional multimodal inputs.
+    Main diagnosis endpoint â€” accepts text query + optional multimodal inputs.
 
     Args:
         query: Engineer's question (text)
@@ -161,8 +226,9 @@ async def diagnose(
     Returns:
         Complete diagnosis with risk assessment and report
     """
-    session_id = uuid.uuid4().hex[:12]
-    logger.info(f"🔧 New diagnosis request | Session: {session_id} | Query: {query[:80]}...")
+    if not session_id:
+        session_id = uuid.uuid4().hex[:12]
+    logger.info(f"ðŸ”§ New diagnosis request | Session: {session_id} | Query: {query[:80]}...")
 
     # Save uploaded files
     image_path = None
@@ -185,23 +251,39 @@ async def diagnose(
     # Build initial state
     initial_state = {
         "query": query,
+        "language": language or "en",
+        "web_search": web_search,
         "session_id": session_id,
         "equipment_id": equipment_id,
         "equipment_type": equipment_type,
-        "image_path": image_path,
-        "csv_path": csv_path,
-        "doc_paths": doc_paths if doc_paths else None,
+        "image_paths": [image_path] if image_path else [],
+        "has_image": bool(image_path),
+        "csv_paths": [csv_path] if csv_path else [],
+        "has_csv": bool(csv_path),
+        "doc_paths": doc_paths if doc_paths else [],
+        "has_docs": bool(doc_paths),
     }
+
+    from langchain_core.messages import HumanMessage
+    messages = []
+    if session_id in session_history and "messages" in session_history[session_id]:
+        messages = session_history[session_id]["messages"].copy()
+    messages.append(HumanMessage(content=query))
+    initial_state["messages"] = messages
 
     try:
         # Run the LangGraph pipeline
         from src.graph.omnisense_graph import run_pipeline
         result = await run_pipeline(initial_state)
+        if web_search:
+            result["web_references"] = _search_web_references(query or result.get("query", ""))
 
         # Store in session history
-        session_history[session_id] = {
+        if session_id not in session_history:
+            session_history[session_id] = {"timestamp": datetime.now().isoformat()}
+
+        session_history[session_id].update({
             "query": query,
-            "timestamp": datetime.now().isoformat(),
             "result": {
                 "diagnosis": result.get("diagnosis"),
                 "risk_level": result.get("risk_level"),
@@ -209,8 +291,9 @@ async def diagnose(
                 "report": result.get("report"),
                 "vision_output": result.get("vision_output"),
                 "anomaly_result": result.get("anomaly_result"),
-            }
-        }
+            },
+            "messages": result.get("messages", [])
+        })
 
         # Extract conversational AI response if it exists
         chat_response = None
@@ -230,23 +313,29 @@ async def diagnose(
             "report": result.get("report"),
             "vision_output": result.get("vision_output"),
             "anomaly_result": result.get("anomaly_result"),
+            "web_references": result.get("web_references", []),
             "pipeline_errors": result.get("pipeline_errors", []),
         }
 
     except Exception as e:
-        logger.error(f"❌ Diagnosis failed: {str(e)}")
+        logger.error(f"âŒ Diagnosis failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Pipeline error: {str(e)}")
 
 
 @app.post("/voice")
 async def voice_diagnose(
     audio: UploadFile = File(...),
+    query: Optional[str] = Form(None),
+    session_id: Optional[str] = Form(None),
     equipment_id: Optional[str] = Form(None),
     equipment_type: Optional[str] = Form(None),
+    web_search: bool = Form(False),
     image: Optional[UploadFile] = File(None),
+    csv_file: Optional[UploadFile] = File(None),
+    documents: Optional[list[UploadFile]] = File(None),
 ):
     """
-    Voice-based diagnosis — accepts audio file, transcribes with Whisper,
+    Voice-based diagnosis â€” accepts audio file, transcribes with Whisper,
     then runs through the diagnosis pipeline.
 
     Args:
@@ -258,8 +347,9 @@ async def voice_diagnose(
     Returns:
         Diagnosis result + audio response path
     """
-    session_id = uuid.uuid4().hex[:12]
-    logger.info(f"🎤 Voice diagnosis request | Session: {session_id}")
+    if not session_id:
+        session_id = uuid.uuid4().hex[:12]
+    logger.info(f"ðŸŽ¤ Voice diagnosis request | Session: {session_id}")
 
     # Save audio file
     audio_path = await save_upload(audio, "audio")
@@ -270,27 +360,66 @@ async def voice_diagnose(
         
         stt_result = speech_to_text(audio_path)
         text = stt_result.get("text", "")
+        if query:
+            text = f"{query}\n\nSpoken input: {text}".strip()
         language = stt_result.get("language", "en")
         
-        logger.info(f"📝 Transcribed: '{text[:80]}...' | Language: {language}")
+        logger.info(f"ðŸ“ Transcribed: '{text[:80]}...' | Language: {language}")
 
         # Save image if provided
         image_path = None
+        csv_path = None
+        doc_paths = []
         if image and image.filename:
             image_path = await save_upload(image, "images")
+        if csv_file and csv_file.filename:
+            csv_path = await save_upload(csv_file, "csv")
+        if documents:
+            for doc in documents:
+                if doc.filename:
+                    doc_paths.append(await save_upload(doc, "documents"))
 
         # Run diagnosis pipeline
         initial_state = {
             "query": text,
             "language": language,
+            "web_search": web_search,
             "session_id": session_id,
             "equipment_id": equipment_id,
             "equipment_type": equipment_type,
-            "image_path": image_path,
+            "image_paths": [image_path] if image_path else [],
+            "has_image": bool(image_path),
+            "csv_paths": [csv_path] if csv_path else [],
+            "has_csv": bool(csv_path),
+            "doc_paths": doc_paths,
+            "has_docs": bool(doc_paths),
         }
+
+        from langchain_core.messages import HumanMessage
+        messages = []
+        if session_id in session_history and "messages" in session_history[session_id]:
+            messages = session_history[session_id]["messages"].copy()
+        messages.append(HumanMessage(content=text))
+        initial_state["messages"] = messages
 
         from src.graph.omnisense_graph import run_pipeline
         result = await run_pipeline(initial_state)
+        if web_search:
+            result["web_references"] = _search_web_references(text)
+
+        # Store in session history
+        if session_id not in session_history:
+            session_history[session_id] = {"timestamp": datetime.now().isoformat()}
+
+        session_history[session_id].update({
+            "query": text,
+            "result": {
+                "diagnosis": result.get("diagnosis"),
+                "risk_level": result.get("risk_level"),
+                "report": result.get("report"),
+            },
+            "messages": result.get("messages", [])
+        })
 
         # Generate voice response
         response_text = ""
@@ -315,10 +444,11 @@ async def voice_diagnose(
             "risk_level": result.get("risk_level"),
             "report": result.get("report"),
             "audio_response_path": audio_response_path,
+            "web_references": result.get("web_references", []),
         }
 
     except Exception as e:
-        logger.error(f"❌ Voice diagnosis failed: {str(e)}")
+        logger.error(f"âŒ Voice diagnosis failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Voice pipeline error: {str(e)}")
 
 
@@ -372,7 +502,7 @@ async def submit_feedback(
         }
 
     except Exception as e:
-        logger.error(f"❌ Feedback submission failed: {str(e)}")
+        logger.error(f"âŒ Feedback submission failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Feedback error: {str(e)}")
 
 
@@ -414,9 +544,9 @@ async def download_report(report_id: str):
     raise HTTPException(status_code=404, detail="Report not found")
 
 
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Voice Endpoints
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @app.post("/api/voice/stt")
 async def speech_to_text_endpoint(audio: UploadFile = File(...)):
@@ -449,9 +579,84 @@ async def text_to_speech_endpoint(
     return FileResponse(mp3_path, media_type="audio/mpeg")
 
 
-# ══════════════════════════════════════════════════════════════
+@app.post("/api/session/upload")
+async def upload_session_attachment(
+    file: UploadFile = File(...),
+    category: str = Form("document"),
+):
+    """Upload an attachment for WebSocket voice/chat sessions."""
+    normalized = (category or "document").lower()
+    folder_map = {
+        "image": "images",
+        "csv": "csv",
+        "document": "documents",
+        "pdf": "documents",
+    }
+    if normalized not in folder_map:
+        raise HTTPException(status_code=400, detail="Unsupported attachment category")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+
+    saved_path = await save_upload(file, folder_map[normalized])
+    return {
+        "filename": file.filename,
+        "category": normalized,
+        "path": saved_path,
+    }
+
+
+@app.post("/api/tickets")
+async def create_ticket(
+    title: str = Form(...),
+    description: str = Form(...),
+    severity: str = Form("MEDIUM"),
+    equipment_id: Optional[str] = Form(None),
+    session_id: Optional[str] = Form(None),
+    created_by: str = Form("engineer"),
+):
+    """Create a maintenance ticket from a chat or voice finding."""
+    ticket = {
+        "id": f"TKT-{len(tickets_store) + 1:04d}",
+        "title": title,
+        "description": description,
+        "severity": severity.upper(),
+        "equipment_id": equipment_id,
+        "session_id": session_id,
+        "created_by": created_by,
+        "status": "OPEN",
+        "created_at": datetime.now().isoformat(),
+    }
+    tickets_store.insert(0, ticket)
+    return {"status": "success", "ticket": ticket}
+
+
+@app.get("/api/tickets")
+async def list_tickets():
+    """List created maintenance tickets."""
+    return {"total": len(tickets_store), "tickets": tickets_store}
+
+
+@app.get("/api/analytics/overview")
+async def analytics_overview():
+    """Return a lightweight analytics snapshot for the frontend."""
+    open_tickets = [t for t in tickets_store if t["status"] == "OPEN"]
+    risk_counts = {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0}
+    for session in session_history.values():
+        risk = ((session.get("result") or {}).get("risk_level") or "LOW").upper()
+        if risk in risk_counts:
+            risk_counts[risk] += 1
+    return {
+        "sessions": len(session_history),
+        "tickets": len(tickets_store),
+        "open_tickets": len(open_tickets),
+        "risk_counts": risk_counts,
+        "reports": len(list(REPORTS_DIR.glob("*.md"))) + len(list(REPORTS_DIR.glob("*.pdf"))),
+    }
+
+
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # WebSocket for Real-time Agent Status & Chat
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 from langchain_core.messages import HumanMessage
 from src.graph.omnisense_graph import get_pipeline
@@ -479,6 +684,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
             "has_docs": False,
             "image_paths": [],
             "csv_paths": [],
+            "doc_paths": [],
             "equipment_id": None,
             "equipment_type": None,
             "agent_status": None,
@@ -504,13 +710,29 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
             # Update state with new user message
             human_msg = HumanMessage(content=user_text)
             ws_session_state[session_id]["messages"].append(human_msg)
+            ws_session_state[session_id]["query"] = user_text
             
             # Update context if provided dynamically mid-chat
             if data.get("equipment_id"):
                 ws_session_state[session_id]["equipment_id"] = data["equipment_id"]
-            if data.get("image_path"):
-                ws_session_state[session_id]["image_paths"].append(data["image_path"])
+            if data.get("equipment_type"):
+                ws_session_state[session_id]["equipment_type"] = data["equipment_type"]
+            if data.get("language"):
+                ws_session_state[session_id]["language"] = data["language"]
+
+            image_paths = data.get("image_paths") or ([data["image_path"]] if data.get("image_path") else [])
+            csv_paths = data.get("csv_paths") or []
+            doc_paths = data.get("doc_paths") or []
+
+            if image_paths:
+                ws_session_state[session_id]["image_paths"].extend(image_paths)
                 ws_session_state[session_id]["has_image"] = True
+            if csv_paths:
+                ws_session_state[session_id]["csv_paths"].extend(csv_paths)
+                ws_session_state[session_id]["has_csv"] = True
+            if doc_paths:
+                ws_session_state[session_id]["doc_paths"].extend(doc_paths)
+                ws_session_state[session_id]["has_docs"] = True
                 
             try:
                 # Notify UI that agent started thinking
@@ -544,6 +766,24 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
                             else:
                                 ws_session_state[session_id][key] = val
                 
+                complete_payload = {
+                    "session_id": session_id,
+                    "chat_response": None,
+                    "diagnosis": ws_session_state[session_id].get("diagnosis"),
+                    "risk_level": ws_session_state[session_id].get("risk_level"),
+                    "risk_details": ws_session_state[session_id].get("risk_details"),
+                    "report": ws_session_state[session_id].get("report"),
+                    "vision_output": ws_session_state[session_id].get("vision_output"),
+                    "rag_context": ws_session_state[session_id].get("rag_context"),
+                    "anomaly_result": ws_session_state[session_id].get("anomaly_result"),
+                    "pipeline_errors": ws_session_state[session_id].get("pipeline_errors", []),
+                }
+                for msg in reversed(ws_session_state[session_id].get("messages", [])):
+                    if getattr(msg, "type", "") == "ai" and not getattr(msg, "tool_calls", []):
+                        complete_payload["chat_response"] = msg.content
+                        break
+
+                await websocket.send_json({"type": "complete", "data": complete_payload})
                 await websocket.send_json({"type": "status", "status": "Waiting for input", "node": "idle"})
                 
             except Exception as e:
@@ -554,9 +794,9 @@ async def chat_websocket(websocket: WebSocket, session_id: str):
         logger.info(f"WebSocket disconnected: {session_id}")
 
 
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Equipment List Endpoint
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @app.get("/api/equipment/list")
 async def get_equipment_list():
@@ -576,9 +816,9 @@ async def get_equipment_list():
     }
 
 
-# ══════════════════════════════════════════════════════════════
-# Live Sensor Data — Dashboard Feed
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# Live Sensor Data â€” Dashboard Feed
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 # In-memory state for live simulation
 import random
@@ -831,9 +1071,9 @@ async def get_equipment_fleet():
     return {"fleet": fleet}
 
 
-# ══════════════════════════════════════════════════════════════
-# Maintenance Records — History, Team, Faults, Downtime
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# Maintenance Records â€” History, Team, Faults, Downtime
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 MAINTENANCE_DATA = {
     "BF-001": {
@@ -851,11 +1091,11 @@ MAINTENANCE_DATA = {
             {"fault": "Charging bell jam", "frequency": 9, "severity": "MEDIUM", "avg_downtime_hrs": 6},
         ],
         "downtime_history": [
-            {"date": "2026-05-15", "duration_hrs": 12, "reason": "Cooling system leak — pipe replacement", "type": "Corrective"},
-            {"date": "2026-04-22", "duration_hrs": 48, "reason": "Tuyere #7 burn-through — emergency replacement", "type": "Emergency"},
-            {"date": "2026-03-10", "duration_hrs": 4, "reason": "Routine inspection — slag notch cleaning", "type": "Preventive"},
+            {"date": "2026-05-15", "duration_hrs": 12, "reason": "Cooling system leak â€” pipe replacement", "type": "Corrective"},
+            {"date": "2026-04-22", "duration_hrs": 48, "reason": "Tuyere #7 burn-through â€” emergency replacement", "type": "Emergency"},
+            {"date": "2026-03-10", "duration_hrs": 4, "reason": "Routine inspection â€” slag notch cleaning", "type": "Preventive"},
             {"date": "2026-02-08", "duration_hrs": 8, "reason": "Cooling water pump bearing failure", "type": "Corrective"},
-            {"date": "2026-01-05", "duration_hrs": 72, "reason": "Refractory relining — Zone 3", "type": "Planned Shutdown"},
+            {"date": "2026-01-05", "duration_hrs": 72, "reason": "Refractory relining â€” Zone 3", "type": "Planned Shutdown"},
             {"date": "2025-11-18", "duration_hrs": 6, "reason": "Gas cleaning system filter blockage", "type": "Corrective"},
         ],
         "total_downtime_hrs_ytd": 150,
@@ -886,8 +1126,8 @@ MAINTENANCE_DATA = {
             {"fault": "Burden distribution uneven", "frequency": 6, "severity": "MEDIUM", "avg_downtime_hrs": 4},
         ],
         "downtime_history": [
-            {"date": "2026-05-20", "duration_hrs": 6, "reason": "Thermocouple replacement — Zone 5", "type": "Corrective"},
-            {"date": "2026-04-12", "duration_hrs": 36, "reason": "Tuyere #3 overheating — coolant line repair", "type": "Emergency"},
+            {"date": "2026-05-20", "duration_hrs": 6, "reason": "Thermocouple replacement â€” Zone 5", "type": "Corrective"},
+            {"date": "2026-04-12", "duration_hrs": 36, "reason": "Tuyere #3 overheating â€” coolant line repair", "type": "Emergency"},
             {"date": "2026-03-01", "duration_hrs": 4, "reason": "Routine inspection", "type": "Preventive"},
         ],
         "total_downtime_hrs_ytd": 82,
@@ -919,7 +1159,7 @@ MAINTENANCE_DATA = {
             {"fault": "Guide misalignment", "frequency": 20, "severity": "LOW", "avg_downtime_hrs": 2},
         ],
         "downtime_history": [
-            {"date": "2026-06-02", "duration_hrs": 24, "reason": "Work roll bearing replacement — Stand 3", "type": "Corrective"},
+            {"date": "2026-06-02", "duration_hrs": 24, "reason": "Work roll bearing replacement â€” Stand 3", "type": "Corrective"},
             {"date": "2026-05-10", "duration_hrs": 4, "reason": "Roll grinding & cambering", "type": "Preventive"},
             {"date": "2026-04-18", "duration_hrs": 10, "reason": "Main motor winding overheating", "type": "Emergency"},
             {"date": "2026-03-25", "duration_hrs": 6, "reason": "Gearbox oil seal replacement", "type": "Corrective"},
@@ -987,7 +1227,7 @@ MAINTENANCE_DATA = {
             {"date": "2026-05-20", "duration_hrs": 12, "reason": "Segment roller bearing replacement", "type": "Corrective"},
             {"date": "2026-04-15", "duration_hrs": 2, "reason": "Spray nozzle cleaning & replacement", "type": "Preventive"},
             {"date": "2026-03-08", "duration_hrs": 36, "reason": "Mould oscillation cylinder failure", "type": "Emergency"},
-            {"date": "2026-01-22", "duration_hrs": 48, "reason": "Near-breakout event — full strand inspection", "type": "Emergency"},
+            {"date": "2026-01-22", "duration_hrs": 48, "reason": "Near-breakout event â€” full strand inspection", "type": "Emergency"},
         ],
         "total_downtime_hrs_ytd": 118,
         "mtbf_days": 22, "mttr_hrs": 16,
@@ -1018,7 +1258,7 @@ MAINTENANCE_DATA = {
         "downtime_history": [
             {"date": "2026-05-28", "duration_hrs": 3, "reason": "Cylinder seal replacement", "type": "Corrective"},
             {"date": "2026-04-20", "duration_hrs": 4, "reason": "Oil filtration system flush", "type": "Preventive"},
-            {"date": "2026-03-12", "duration_hrs": 16, "reason": "Main pump cavitation — bearing replaced", "type": "Emergency"},
+            {"date": "2026-03-12", "duration_hrs": 16, "reason": "Main pump cavitation â€” bearing replaced", "type": "Emergency"},
         ],
         "total_downtime_hrs_ytd": 35,
         "mtbf_days": 40, "mttr_hrs": 6,
@@ -1051,7 +1291,7 @@ MAINTENANCE_DATA = {
             {"date": "2026-06-01", "duration_hrs": 8, "reason": "Electrode column #2 replaced", "type": "Corrective"},
             {"date": "2026-05-12", "duration_hrs": 12, "reason": "Water-cooled panel patch welding", "type": "Emergency"},
             {"date": "2026-04-05", "duration_hrs": 6, "reason": "EBT slide gate cleaning", "type": "Preventive"},
-            {"date": "2026-02-20", "duration_hrs": 96, "reason": "Full hearth reline — planned shutdown", "type": "Planned Shutdown"},
+            {"date": "2026-02-20", "duration_hrs": 96, "reason": "Full hearth reline â€” planned shutdown", "type": "Planned Shutdown"},
             {"date": "2026-01-10", "duration_hrs": 24, "reason": "Transformer cooling fan failure", "type": "Emergency"},
         ],
         "total_downtime_hrs_ytd": 170,
@@ -1084,7 +1324,7 @@ MAINTENANCE_DATA = {
         ],
         "downtime_history": [
             {"date": "2026-05-22", "duration_hrs": 2, "reason": "Belt tracking adjustment", "type": "Preventive"},
-            {"date": "2026-04-10", "duration_hrs": 3, "reason": "Idler roller swap — bay 14", "type": "Corrective"},
+            {"date": "2026-04-10", "duration_hrs": 3, "reason": "Idler roller swap â€” bay 14", "type": "Corrective"},
             {"date": "2026-02-28", "duration_hrs": 18, "reason": "Belt splice vulcanization", "type": "Corrective"},
         ],
         "total_downtime_hrs_ytd": 28,
@@ -1118,7 +1358,7 @@ MAINTENANCE_DATA = {
             {"date": "2026-05-25", "duration_hrs": 1, "reason": "Intake filter replacement", "type": "Preventive"},
             {"date": "2026-04-30", "duration_hrs": 6, "reason": "Intercooler chemical cleaning", "type": "Preventive"},
             {"date": "2026-03-18", "duration_hrs": 12, "reason": "Drive-end bearing replacement", "type": "Corrective"},
-            {"date": "2026-02-05", "duration_hrs": 24, "reason": "Valve plate crack — Stage 2 head rebuild", "type": "Emergency"},
+            {"date": "2026-02-05", "duration_hrs": 24, "reason": "Valve plate crack â€” Stage 2 head rebuild", "type": "Emergency"},
         ],
         "total_downtime_hrs_ytd": 55,
         "mtbf_days": 30, "mttr_hrs": 8,
@@ -1143,9 +1383,9 @@ async def get_maintenance_records(equipment_id: str = None):
     return {"records": list(MAINTENANCE_DATA.values())}
 
 
-# ══════════════════════════════════════════════════════════════
-# New Endpoints — Predictions, Service Overdue, Summary
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# New Endpoints â€” Predictions, Service Overdue, Summary
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @app.get("/predictions")
 async def get_predictions():
@@ -1309,7 +1549,7 @@ async def get_plant_summary():
     logs_path = Path("src/data/maintenance_logs.csv")
 
     summary = {
-        "plant_name": "Tata Steel — Jamshedpur Works",
+        "plant_name": "Tata Steel â€” Jamshedpur Works",
         "system": "OmniSense AI Wizard v1.0",
         "generated_at": datetime.now().isoformat(),
         "total_equipment": 9,
@@ -1360,25 +1600,85 @@ async def get_plant_summary():
 
     return summary
 
+# ══════════════════════════════════════════════════════════════
+# NEW ENDPOINTS FOR UI
+# ══════════════════════════════════════════════════════════════
 
-# ══════════════════════════════════════════════════════════════
+# In-memory database for tickets
+tickets_db = []
+
+@app.post("/api/tickets")
+async def create_ticket(
+    title: str = Form(...),
+    description: str = Form(...),
+    severity: str = Form("MEDIUM"),
+    equipment_id: str = Form(""),
+    session_id: str = Form(""),
+    created_by: str = Form("engineer")
+):
+    """Create a new maintenance ticket."""
+    ticket_id = f"TKT-{uuid.uuid4().hex[:6].upper()}"
+    ticket = {
+        "id": ticket_id,
+        "title": title,
+        "description": description,
+        "severity": severity,
+        "status": "OPEN",
+        "equipment_id": equipment_id,
+        "created_at": datetime.now().isoformat(),
+        "session_id": session_id,
+        "created_by": created_by
+    }
+    tickets_db.append(ticket)
+    return {"status": "success", "ticket": ticket}
+
+@app.get("/api/tickets")
+async def list_tickets():
+    """List all tickets."""
+    # Reverse so newest are first
+    return {"tickets": tickets_db[::-1]}
+
+@app.get("/api/analytics/overview")
+async def get_analytics_overview():
+    """Get system analytics."""
+    reports = 0
+    risk_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    
+    for sid, session in session_history.items():
+        if session.get("result"):
+            r = session["result"]
+            if r.get("report"):
+                reports += 1
+            if r.get("risk_level"):
+                risk = r["risk_level"]
+                if risk in risk_counts:
+                    risk_counts[risk] += 1
+                    
+    return {
+        "sessions": len(session_history),
+        "tickets": len(tickets_db),
+        "open_tickets": len([t for t in tickets_db if t["status"] == "OPEN"]),
+        "reports": reports,
+        "risk_counts": risk_counts
+    }
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Startup Event
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize resources on server startup."""
-    logger.info("🏭 OmniSense AI Wizard starting up...")
-    logger.info(f"📂 Upload directory: {UPLOAD_DIR.absolute()}")
-    logger.info(f"📂 Reports directory: {REPORTS_DIR.absolute()}")
+    logger.info("ðŸ­ OmniSense AI Wizard starting up...")
+    logger.info(f"ðŸ“‚ Upload directory: {UPLOAD_DIR.absolute()}")
+    logger.info(f"ðŸ“‚ Reports directory: {REPORTS_DIR.absolute()}")
 
     # Check API keys
     if not os.getenv("GROQ_API_KEY"):
-        logger.warning("⚠️  GROQ_API_KEY not set — Diagnostic Agent will fail")
+        logger.warning("âš ï¸  GROQ_API_KEY not set â€” Diagnostic Agent will fail")
     if not os.getenv("GOOGLE_API_KEY"):
-        logger.warning("⚠️  GOOGLE_API_KEY not set — Vision Agent will fail")
+        logger.warning("âš ï¸  GOOGLE_API_KEY not set â€” Vision Agent will fail")
 
-    logger.info("✅ OmniSense AI Wizard ready!")
+    logger.info("âœ… OmniSense AI Wizard ready!")
 
 
 if __name__ == "__main__":

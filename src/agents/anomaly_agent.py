@@ -85,7 +85,7 @@ def run_anomaly(state: OmniSenseState) -> OmniSenseState:
     """
     # Extract tool call
     messages = state.get("messages", [])
-    if not messages: return state
+    if not messages: return {}
     last_msg = messages[-1]
     
     tool_call_id = None
@@ -96,16 +96,15 @@ def run_anomaly(state: OmniSenseState) -> OmniSenseState:
                 break
                 
     if not tool_call_id:
-        return state
+        return {}
 
-    state["agent_status"] = "Analyzing sensor data for anomalies..."
+    updates = {}
 
     csv_paths = state.get("csv_paths", [])
     if not csv_paths:
         logger.info("   No CSV path provided. Skipping anomaly detection.")
-        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_anomaly", content="No sensor CSV provided to analyze."))
-        state["agent_status"] = "Anomaly analysis skipped (no CSV)."
-        return state
+        updates["messages"] = [ToolMessage(tool_call_id=tool_call_id, name="run_anomaly", content="No sensor CSV provided to analyze.")]
+        return updates
 
     csv_path = csv_paths[-1]
         
@@ -115,7 +114,8 @@ def run_anomaly(state: OmniSenseState) -> OmniSenseState:
         
         if len(df) < 10:
             logger.warning("   CSV has fewer than 10 rows. Need more data for accurate prediction.")
-            return state
+            updates["messages"] = [ToolMessage(tool_call_id=tool_call_id, name="run_anomaly", content="CSV data insufficient. Need at least 10 rows.")]
+            return updates
 
         # Load models
         iso_forest = joblib.load(ISOLATION_FOREST_PATH)
@@ -142,7 +142,7 @@ def run_anomaly(state: OmniSenseState) -> OmniSenseState:
         anomalous_sensor = find_anomalous_sensor(df, SENSOR_COLUMNS)
         alert_triggered = rul_days < 7
         
-        state["anomaly_result"] = {
+        anomaly_result = {
             "anomaly_detected": anomaly_score_normalized > 0.6,
             "anomaly_score": round(anomaly_score_normalized, 3),
             "severity": severity,
@@ -155,16 +155,17 @@ def run_anomaly(state: OmniSenseState) -> OmniSenseState:
             "trend_data": df.tail(30).to_dict("records"),
             "recommendations": generate_sensor_recommendations(anomaly_score_normalized, rul_days)
         }
+        updates["anomaly_result"] = anomaly_result
         
         if alert_triggered:
-            state["force_critical"] = True
+            updates["force_critical"] = True
             logger.warning("   🚨 CRITICAL ALERT TRIGGERED: RUL < 7 days")
             
         # Append ToolMessage
         import json
         
         # Omit trend_data from tool message to save context window tokens
-        tool_res = dict(state["anomaly_result"])
+        tool_res = dict(anomaly_result)
         tool_res.pop("trend_data", None)
         
         tool_msg = ToolMessage(
@@ -172,13 +173,12 @@ def run_anomaly(state: OmniSenseState) -> OmniSenseState:
             name="run_anomaly",
             content=f"Anomaly Analysis Result: {json.dumps(tool_res)}"
         )
-        state["messages"].append(tool_msg)
+        updates["messages"] = [tool_msg]
             
         logger.info(f"   Anomaly analysis complete. Score: {anomaly_score_normalized:.2f}, RUL: {rul_days} days")
         
     except Exception as e:
         logger.error(f"❌ Anomaly Agent failed: {str(e)}")
-        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_anomaly", content=f"Anomaly Agent failed: {e}"))
+        updates["messages"] = [ToolMessage(tool_call_id=tool_call_id, name="run_anomaly", content=f"Anomaly Agent failed: {e}")]
         
-    state["agent_status"] = "Sensor analysis complete."
-    return state
+    return updates

@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 const API_BASE = 'http://localhost:8000';
+export { API_BASE };
 
 export const runQuery = async (formData) => {
   const response = await axios.post(`${API_BASE}/diagnose`, formData, {
@@ -51,5 +52,16 @@ export const getLiveAlerts = async (severity, area, limit = 50) => {
 
 export const getEquipmentFleet = async () => {
   const response = await axios.get(`${API_BASE}/api/equipment/fleet`);
+  return response.data;
+};
+
+export const createTicket = async (payload) => {
+  const fd = new FormData();
+  Object.entries(payload).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) fd.append(key, value);
+  });
+  const response = await axios.post(`${API_BASE}/api/tickets`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
   return response.data;
 };

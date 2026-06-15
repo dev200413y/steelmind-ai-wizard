@@ -3,6 +3,10 @@ import React from 'react';
 const NAV_ITEMS = [
   { id: 'dashboard',   icon: '📊', label: 'Dashboard' },
   { id: 'chat',        icon: '🤖', label: 'AI Chat' },
+  { id: 'history',     icon: '🕘', label: 'History' },
+  { id: 'analytics',   icon: '📈', label: 'Analytics' },
+  { id: 'risk',        icon: '⚠️', label: 'Risk' },
+  { id: 'tickets',     icon: '🎫', label: 'Tickets' },
   { id: 'equipment',   icon: '⚙️', label: 'Equipment' },
   { id: 'maintenance', icon: '🔧', label: 'Maintenance' },
   { id: 'alerts',      icon: '🔔', label: 'Alerts' },

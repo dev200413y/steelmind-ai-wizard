@@ -1,12 +1,13 @@
 """
 OmniSense AI Wizard — Vision Agent
 =====================================
-Analyzes uploaded equipment photographs using Gemini 1.5 Flash
+Analyzes uploaded equipment photographs using Mistral vision models
 to identify visual faults (corrosion, cracks, overheating, wear, leaks).
 
 Spec: agents/vision_agent.md
 """
 
+import base64
 import json
 import logging
 import os
@@ -14,9 +15,11 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.schemas import OmniSenseState, VisionOutput
+from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_openai import ChatOpenAI
+
 from src.prompts import get_prompt
-from langchain_core.messages import ToolMessage
+from src.schemas import OmniSenseState, VisionOutput
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,8 @@ _VISION_FALLBACK: Dict[str, Any] = {
     "affected_component": "unknown",
     "severity": "LOW",
     "visual_observations": [],
+    "ocr_text": [],
+    "visible_equipment_context": "",
     "immediate_action_required": False,
     "confidence": 0.0,
     "additional_context": "",
@@ -40,10 +45,10 @@ _VISION_FALLBACK: Dict[str, Any] = {
 
 def run_vision(state: OmniSenseState) -> OmniSenseState:
     """
-    Analyze an equipment image using Gemini 1.5 Flash vision model.
+    Analyze an equipment image using a Mistral vision model.
 
-    Reads the image from ``state["image_path"]``, sends it to
-    Gemini along with the VISION_AGENT_PROMPT, and parses the
+    Reads the image from ``state["image_paths"]``, sends it to
+    Mistral along with the VISION_AGENT_PROMPT, and parses the
     structured JSON response into ``state["vision_output"]``.
 
     Skips silently (returns state unchanged) when no image is
@@ -58,7 +63,7 @@ def run_vision(state: OmniSenseState) -> OmniSenseState:
     """
     # Extract tool call
     messages = state.get("messages", [])
-    if not messages: return state
+    if not messages: return {}
     last_msg = messages[-1]
     
     tool_call_id = None
@@ -69,18 +74,17 @@ def run_vision(state: OmniSenseState) -> OmniSenseState:
                 break
                 
     if not tool_call_id:
-        return state
+        return {}
 
-    state["agent_status"] = "Analyzing equipment image with Vision AI..."
+    updates = {}
 
     # Extract image path (either from state or tool args)
     # The OmniSenseState holds list of image_paths now
     image_paths = state.get("image_paths", [])
     if not image_paths:
         logger.info("Vision Agent skipped — no image provided.")
-        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_vision", content="No image provided to analyze."))
-        state["agent_status"] = "Vision analysis skipped (no image)."
-        return state
+        updates["messages"] = [ToolMessage(tool_call_id=tool_call_id, name="run_vision", content="No image provided to analyze.")]
+        return updates
 
     # Just take the latest image
     image_path = image_paths[-1]
@@ -97,49 +101,34 @@ def run_vision(state: OmniSenseState) -> OmniSenseState:
         # Build prompt
         prompt = _build_vision_prompt(state)
 
-        # Configure Gemini
-        import google.generativeai as genai  # type: ignore[import-untyped]
-
-        api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError("GOOGLE_API_KEY not set in environment variables.")
-
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-
-        # Send image + prompt to Gemini
-        logger.info("Sending image to Gemini 1.5 Flash — %s (%d bytes)", image_path, len(image_data))
-        response = model.generate_content([
-            {"mime_type": mime_type, "data": image_data},
-            prompt,
-        ])
-
-        state["vision_output"] = _parse_vision_json(response.text)
+        # Send image + prompt to Mistral Vision
+        logger.info("Sending image to Mistral vision model — %s (%d bytes)", image_path, len(image_data))
+        response_text = _call_mistral_vision(prompt, image_data, mime_type)
+        updates["vision_output"] = _parse_vision_json(response_text)
         
         # Append ToolMessage
         tool_msg = ToolMessage(
             tool_call_id=tool_call_id,
             name="run_vision",
-            content=f"Vision Analysis Result: {json.dumps(state['vision_output'])}"
+            content=f"Vision Analysis Result: {json.dumps(updates['vision_output'])}"
         )
-        state["messages"].append(tool_msg)
+        updates["messages"] = [tool_msg]
         
         logger.info(
             "Vision analysis complete — fault=%s, severity=%s, confidence=%.2f",
-            state["vision_output"].get("fault_detected"),
-            state["vision_output"].get("severity"),
-            state["vision_output"].get("confidence", 0.0),
+            updates["vision_output"].get("fault_detected"),
+            updates["vision_output"].get("severity"),
+            updates["vision_output"].get("confidence", 0.0),
         )
 
     except Exception as exc:
         logger.error("Vision Agent failed: %s", exc, exc_info=True)
         fallback = dict(_VISION_FALLBACK)
         fallback["error"] = str(exc)
-        state["vision_output"] = fallback
-        state["messages"].append(ToolMessage(tool_call_id=tool_call_id, name="run_vision", content=f"Vision failed: {exc}"))
+        updates["vision_output"] = fallback
+        updates["messages"] = [ToolMessage(tool_call_id=tool_call_id, name="run_vision", content=f"Vision failed: {exc}")]
 
-    state["agent_status"] = "Vision analysis complete."
-    return state
+    return updates
 
 
 # ══════════════════════════════════════════════════════════════
@@ -157,7 +146,7 @@ def _build_vision_prompt(state: OmniSenseState) -> str:
         state: Pipeline state with query and equipment info.
 
     Returns:
-        str: Complete prompt for Gemini vision analysis.
+        str: Complete prompt for Mistral vision analysis.
     """
     prompt = get_prompt("VISION_AGENT_PROMPT")
 
@@ -167,6 +156,34 @@ def _build_vision_prompt(state: OmniSenseState) -> str:
         prompt += f"\nEngineer's description: {state['query']}"
 
     return prompt
+
+
+def _call_mistral_vision(prompt: str, image_data: bytes, mime_type: str) -> str:
+    """Call Mistral's vision-capable model with the image encoded as a data URL."""
+    api_key = os.getenv("MISTRAL_API_KEY")
+    if not api_key:
+        raise ValueError("MISTRAL_API_KEY not set in environment variables.")
+
+    model = os.getenv("MISTRAL_VISION_MODEL", "pixtral-12b-2409")
+    image_b64 = base64.b64encode(image_data).decode("ascii")
+    data_url = f"data:{mime_type};base64,{image_b64}"
+
+    llm = ChatOpenAI(
+        api_key=api_key,
+        base_url="https://api.mistral.ai/v1",
+        model=model,
+        temperature=0.1,
+    )
+
+    response = llm.invoke([
+        HumanMessage(
+            content=[
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ]
+        )
+    ])
+    return response.content if isinstance(response.content, str) else json.dumps(response.content)
 
 
 def _detect_mime_type(image_path: str) -> str:
@@ -193,7 +210,7 @@ def _detect_mime_type(image_path: str) -> str:
 
 def _parse_vision_json(response_text: str) -> Dict[str, Any]:
     """
-    Parse Gemini's response text into a structured VisionOutput dict.
+    Parse Mistral's response text into a structured VisionOutput dict.
 
     Handles three common response formats:
       1. Clean JSON.
@@ -201,7 +218,7 @@ def _parse_vision_json(response_text: str) -> Dict[str, Any]:
       3. Malformed text — extract what we can with regex.
 
     Args:
-        response_text: Raw text response from Gemini.
+        response_text: Raw text response from Mistral.
 
     Returns:
         dict: Parsed VisionOutput-compatible dictionary.
@@ -233,9 +250,9 @@ def _parse_vision_json(response_text: str) -> Dict[str, Any]:
             pass
 
     # All parsing failed — return fallback
-    logger.warning("Could not parse Gemini vision response: %s", text[:200])
+    logger.warning("Could not parse Mistral vision response: %s", text[:200])
     fallback = dict(_VISION_FALLBACK)
-    fallback["error"] = "Failed to parse Gemini response"
+    fallback["error"] = "Failed to parse Mistral vision response"
     fallback["additional_context"] = text[:500]
     return fallback
 
@@ -259,6 +276,10 @@ def _validate_vision_output(data: Dict[str, Any]) -> Dict[str, Any]:
     # Ensure list types
     if not isinstance(defaults.get("visual_observations"), list):
         defaults["visual_observations"] = []
+    if not isinstance(defaults.get("ocr_text"), list):
+        defaults["ocr_text"] = []
+    if not defaults.get("visible_equipment_context"):
+        defaults["visible_equipment_context"] = _derive_image_context(defaults)
 
     # Clamp confidence to [0.0, 1.0]
     try:
@@ -275,3 +296,15 @@ def _validate_vision_output(data: Dict[str, Any]) -> Dict[str, Any]:
         defaults["severity"] = str(defaults["severity"]).upper()
 
     return defaults
+
+
+def _derive_image_context(data: Dict[str, Any]) -> str:
+    """Create a short human-readable context string from image findings."""
+    observations = data.get("visual_observations") or []
+    ocr_text = data.get("ocr_text") or []
+    parts: List[str] = []
+    if observations:
+        parts.append("; ".join(observations[:3]))
+    if ocr_text:
+        parts.append("OCR: " + "; ".join(ocr_text[:3]))
+    return " | ".join(parts)

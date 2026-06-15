@@ -34,10 +34,56 @@ def init_db():
 
 def update_knowledge_base(feedback: dict):
     """
-    Mock function to update FAISS knowledge base.
-    In a full implementation, this would embed the feedback and append to FAISS.
+    Embed the feedback and append to FAISS index.
     """
-    logger.info(f"🧠 Knowledge base would be updated with correction for {feedback.get('report_id')}")
+    try:
+        from langchain_community.vectorstores import FAISS
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+        from langchain_core.documents import Document
+        from pathlib import Path
+
+        EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+        FAISS_INDEX_DIR = Path("src/knowledge_base/faiss_index")
+
+        if not FAISS_INDEX_DIR.exists():
+            logger.warning("FAISS index directory does not exist, cannot update knowledge base.")
+            return
+
+        logger.info(f"🧠 Updating knowledge base with correction for {feedback.get('report_id')}")
+        
+        embeddings = HuggingFaceEmbeddings(
+            model_name=EMBEDDING_MODEL,
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True},
+        )
+        
+        vectorstore = FAISS.load_local(
+            str(FAISS_INDEX_DIR),
+            embeddings,
+            allow_dangerous_deserialization=True,
+        )
+
+        # Create a document from the feedback
+        content = f"Feedback Correction for Report {feedback.get('report_id')}:\n"
+        content += f"Actual Fault: {feedback.get('actual_fault', 'None provided')}\n"
+        content += f"Engineer Notes: {feedback.get('engineer_notes', 'None provided')}\n"
+        content += f"Outcome: {feedback.get('outcome', 'UNKNOWN')}\n"
+        
+        doc = Document(
+            page_content=content,
+            metadata={
+                "source": "engineer_feedback",
+                "report_id": feedback.get('report_id'),
+                "type": "correction"
+            }
+        )
+
+        vectorstore.add_documents([doc])
+        vectorstore.save_local(str(FAISS_INDEX_DIR))
+        logger.info("✅ Successfully updated FAISS knowledge base with feedback.")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to update knowledge base: {e}")
 
 def run_feedback(feedback_input: dict) -> dict:
     """Store engineer feedback in SQLite."""

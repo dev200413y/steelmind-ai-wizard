@@ -5,6 +5,10 @@ import AIChatPage from './components/AIChatPage';
 import EquipmentPage from './components/EquipmentPage';
 import MaintenancePage from './components/MaintenancePage';
 import AlertsPage from './components/AlertsPage';
+import HistoryPage from './components/HistoryPage';
+import AnalyticsPage from './components/AnalyticsPage';
+import RiskPage from './components/RiskPage';
+import TicketsPage from './components/TicketsPage';
 import { getLiveSensors, getLiveAlerts } from './api';
 import './index.css';
 
@@ -49,6 +53,10 @@ export default function App() {
         {activePage === 'equipment' && <EquipmentPage sensorData={sensorData} />}
         {activePage === 'maintenance' && <MaintenancePage />}
         {activePage === 'alerts' && <AlertsPage alerts={recentAlerts} alertCounts={alertCounts} />}
+        {activePage === 'history' && <HistoryPage />}
+        {activePage === 'analytics' && <AnalyticsPage />}
+        {activePage === 'risk' && <RiskPage />}
+        {activePage === 'tickets' && <TicketsPage />}
       </div>
     </div>
   );
