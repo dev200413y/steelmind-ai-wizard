@@ -70,7 +70,7 @@ export default function RiskPage() {
               </div>
             </div>
             
-            <button className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm font-bold text-white transition-colors flex items-center justify-center gap-2">
+            <button onClick={() => alert(`Analytics for Machine ${item.machine_id}:\nRisk Level: ${item.risk_level}\nEstimated RUL: ${item.rul_days} days`)} className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm font-bold text-white transition-colors flex items-center justify-center gap-2">
               View Analytics <ArrowUpRight size={16} />
             </button>
           </div>

@@ -62,7 +62,7 @@ export default function TicketsPage() {
             
             <div className="pt-4 border-t border-white/10 flex justify-between items-center text-xs text-slate-500">
               <span className="flex items-center gap-1"><Clock size={12}/> {new Date().toLocaleDateString()}</span>
-              <button className="text-blue-500 hover:text-blue-400 font-medium">View Details →</button>
+              <button onClick={() => alert(`Ticket Details:\nID: ${ticket.id}\nTitle: ${ticket.title}\nStatus: ${ticket.status}\nSeverity: ${ticket.severity}\nDescription: ${ticket.description}`)} className="text-blue-500 hover:text-blue-400 font-medium">View Details →</button>
             </div>
           </div>
         ))}
