@@ -973,8 +973,15 @@ async def get_live_sensors():
             state.setdefault("history", {})[sensor] = hist
         
         # Slowly decay RUL
-        if random.random() < 0.1:
-            state["rul_days"] = max(1, state.get("rul_days", 30) - 1)
+        current_rul = state.get("rul_days", random.randint(30, 120))
+        if random.random() < 0.05:
+            current_rul -= 1
+        
+        # Simulate maintenance replacement
+        if current_rul <= 1:
+            current_rul = random.randint(90, 150)
+            
+        state["rul_days"] = current_rul
         
         severity, violations = _classify_severity(eq["type"], state)
         
