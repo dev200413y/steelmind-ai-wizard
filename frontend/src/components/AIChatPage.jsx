@@ -6,7 +6,7 @@ import { createWorker } from 'tesseract.js';
 import { runQuery, submitFeedback, createTicket } from '../api';
 import VoiceAgentExperience from './VoiceAgentExperience';
 
-const API = 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL || 'https://steelmind-ai-wizard-production.up.railway.app';
 
 const EQUIPMENT_LIST = [
   { id: '', name: 'Select Equipment...', type: '' },
