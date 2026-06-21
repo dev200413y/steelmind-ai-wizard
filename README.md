@@ -1,4 +1,4 @@
-# OmniSense AI Wizard 🏭🤖
+# OmniSense AI Wizard (AKA SteelMind Ai Wizard) 🏭🤖
 **Multimodal Multi-Agent AI Maintenance Decision Support System for Steel Plants**
 
 Built for the **Tata Steel AI Hackathon 2026**.
