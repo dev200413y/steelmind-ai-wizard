@@ -1,4 +1,4 @@
-# Risk Scorer Agent
+![alt text](image.png)# Risk Scorer Agent
 
 ## Role
 Assigns a final risk level (LOW / MEDIUM / HIGH / CRITICAL) based on weighted multi-factor analysis. Considers equipment criticality, fault severity, anomaly score, spare parts availability, and maintenance history.
